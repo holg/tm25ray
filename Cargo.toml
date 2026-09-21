@@ -1,0 +1,29 @@
+[package]
+name = "tm25ray"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+authors = ["Holger Trahe <trahe@mac.com>"]
+license = "AGPL-3.0-or-later"
+description = "Reader, writer and far-field converter for IES TM-25 ray files (.TM25RAY): near-field LED and light-source ray sets — zero-copy, streaming, WASM-clean, no dependencies"
+repository = "https://github.com/holg/tm25ray"
+homepage = "https://github.com/holg/tm25ray"
+documentation = "https://docs.rs/tm25ray"
+readme = "README.md"
+keywords = ["tm-25", "ray-file", "photometry", "led", "optics"]
+categories = ["science", "parser-implementations", "multimedia"]
+exclude = ["/.github", "/docs/*.pdf"]
+
+[features]
+default = []
+# Memory-mapped native fast path (never for wasm32).
+mmap = ["dep:memmap2"]
+
+[dependencies]
+memmap2 = { version = "0.9", optional = true }
+thiserror = "1.0"
+
+[dev-dependencies]
+approx = "0.5"
+
+[workspace]
