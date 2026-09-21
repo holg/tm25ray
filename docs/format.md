@@ -65,8 +65,44 @@ All integers are little-endian, all floats are `f32` LE. Spec section numbers fo
 | 288 | 9 × 4000 | UTF-32LE, NUL-padded | see below | Nine description strings, 4.7.3.1 to 4.7.3.9, 1000 code points each (confirmed) |
 | 36288 | 4 | i32 | 51 | First spectral table: point count N (confirmed) |
 | 36292 | N × 8 | (f32 λ, f32 value) | 220 nm ... 320 nm, step 2 | Interleaved pairs, wavelength first, values in percent of peak (peak = 100). Identical to the `spectrum.txt` shipped in the package, which is the same table peak-normalised to 1.0 (confirmed by data) |
-| 36292 + 8N | 4 | i32 | 0 | Not padding: the count of column names for additional ray items, 4.7.5 (0 here), possibly followed by the additional text block, 4.7.6. With `n_addtl_items > 0` UTF-32 names sit here and shift the ray block (VERIFY exact encoding) |
+| 36292 + 8N | 4 | i32 | 0 | Count of column names for additional ray items, 4.7.5 (0 here), followed by the additional text block, 4.7.6. **Optional in practice — see "Vendor differences" below.** With `n_addtl_items > 0` UTF-32 names sit here and shift the ray block (VERIFY exact encoding) |
 | 36704 | n_rays × 28 | 7 × f32 | | Ray records (confirmed) |
+
+The offsets above are from an ams OSRAM file. The fixed part up to 36288 is the
+same everywhere seen so far; what follows it is not.
+
+### Vendor differences (confirmed on real files)
+
+Two producers, two shapes. Both are version 2013 and both store ray data
+little-endian.
+
+**The 4.7.5/4.7.6 trailer is optional.** ams OSRAM writes the column-name count
+(and, with names, 416 bytes of them), so the ray block starts at 36704.
+Lumileds LUXEON files omit the block entirely and the ray block starts at
+36288, immediately after the fixed header. Nothing in the header announces
+which form is used, and a file that writes an *empty* trailer is
+byte-identical, for those four bytes, to one whose first ray starts at x = 0.0.
+The file size resolves it: only one of the two candidate offsets leaves room
+for exactly `n_rays × record_size` bytes. A reader that has only a prefix (a
+stream, an HTTP range request) cannot tell and should prefer the trailer, which
+is what a file with no trailer and no rays would also look like.
+
+**The "unknown value" sentinel may be byte-swapped.** Fields that are not known
+(a radiometric file's luminous flux, the wavelength bounds of a file without a
+spectrum) hold a NaN. ams OSRAM writes it little-endian like every other field,
+`01 00 C0 7F`. Lumileds writes `7F 80 00 01`, the same idea with the bytes
+reversed — which, read little-endian as the rest of the file demands, is not a
+NaN at all but the denormal 2.36 × 10⁻³⁸. That is the dangerous case: a reader
+that only checks `is_nan()` accepts it as a real measurement, and a radiant
+flux of 2.36e-38 W silently poisons every derived quantity instead of failing
+loudly. Match the exact bit pattern; do not classify by "would the swapped
+bytes look like a NaN", which also matches roughly 0.4 % of ordinary positive
+values.
+
+**Record layouts differ accordingly.** The ams OSRAM UV-C files carry position,
+direction and radiant flux (28 bytes). The Lumileds file carries position,
+direction, luminous flux and tristimulus X and Z (36 bytes); Y is omitted
+because for a photometric file it is the luminous flux already present.
 
 Consistency rules the reference implementation enforces, worth mirroring in validation:
 

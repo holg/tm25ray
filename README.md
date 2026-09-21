@@ -28,6 +28,11 @@ tm25ray = "0.1"
   flags: radiant / luminous flux, per-ray wavelength, Stokes and polarisation
   ellipse, tristimulus, spectrum index, user-defined items. Not just the
   28-byte case.
+- **Real vendor files, not just one** — ams OSRAM and Lumileds disagree about
+  whether the optional column-name trailer exists and about the byte order of
+  the "unknown value" sentinel. Both are handled, and a parse/write round trip
+  reproduces either byte for byte. See
+  [Vendor differences](docs/format.md#vendor-differences-confirmed-on-real-files).
 - **Writer** — `write_tm25(...)` produces files that round-trip byte-for-byte
   on the header; use it to export subsets or synthetic sources.
 - **Flux-preserving subsampling** — `subsample` (Floyd) and a streaming

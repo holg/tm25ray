@@ -21,7 +21,11 @@ impl<'a> Tm25File<'a> {
     }
 
     pub fn parse_with(bytes: &'a [u8], opts: &ParseOptions) -> Result<Self> {
-        let header = Header::parse(bytes, opts)?;
+        // The slice is the whole file, so the trailer question can be settled
+        // by size rather than guessed (see `ParseOptions::total_size`).
+        let mut opts = *opts;
+        opts.total_size.get_or_insert(bytes.len() as u64);
+        let header = Header::parse(bytes, &opts)?;
         let expected = header.ray_block_size();
         let actual = (bytes.len() - header.ray_start) as u64;
         if expected != actual {
@@ -56,6 +60,11 @@ impl<R: Read> Tm25Reader<R> {
         Self::with_options(inner, &ParseOptions::default())
     }
 
+    /// Stream from any reader. The header is parsed from a growing prefix, so
+    /// the total size is unknown unless `opts.total_size` says otherwise; set
+    /// it (from `File::metadata` or a `Content-Length`) when a producer might
+    /// omit the optional 4.7.5/4.7.6 trailer *and* write an empty one is
+    /// indistinguishable — see [`ParseOptions::total_size`].
     pub fn with_options(mut inner: R, opts: &ParseOptions) -> Result<Self> {
         // Grow the buffer until the header parses; `Truncated` tells us how much.
         let mut buf = Vec::with_capacity(FIXED_HEADER_SIZE + 4096);

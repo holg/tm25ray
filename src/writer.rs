@@ -31,8 +31,30 @@ pub fn encode_header(header: &Header, n_rays: u64) -> Result<Vec<u8>> {
     out.extend_from_slice(&MAGIC);
     put_i32(&mut out, VERSION_2013);
     put_i32(&mut out, header.creation_method);
-    put_f32(&mut out, header.luminous_flux_lm);
-    put_f32(&mut out, header.radiant_flux_w);
+    // Write back the original bits when the file used an "unknown" sentinel,
+    // so a parse/write round trip is byte exact (see `Header::raw_flux_bits`).
+    // Only when the public field still reads 0.0, i.e. the caller has not
+    // overwritten the value the parser normalised.
+    let (lum_bits, rad_bits) = match header.raw_flux_bits {
+        Some((lum, rad)) => (
+            if header.luminous_flux_lm == 0.0 {
+                lum
+            } else {
+                header.luminous_flux_lm.to_bits()
+            },
+            if header.radiant_flux_w == 0.0 {
+                rad
+            } else {
+                header.radiant_flux_w.to_bits()
+            },
+        ),
+        None => (
+            header.luminous_flux_lm.to_bits(),
+            header.radiant_flux_w.to_bits(),
+        ),
+    };
+    out.extend_from_slice(&lum_bits.to_le_bytes());
+    out.extend_from_slice(&rad_bits.to_le_bytes());
     out.extend_from_slice(&n_rays.to_le_bytes());
     let mut date = header.date_time.as_bytes().to_vec();
     if !date.is_ascii() {
@@ -47,9 +69,10 @@ pub fn encode_header(header: &Header, n_rays: u64) -> Result<Vec<u8>> {
     out.extend_from_slice(&date);
     put_i32(&mut out, header.start_position);
     put_i32(&mut out, header.spectral_id.to_i32());
-    put_f32(&mut out, header.single_wavelength_nm.unwrap_or(f32::NAN));
-    put_f32(&mut out, header.min_wavelength_nm.unwrap_or(f32::NAN));
-    put_f32(&mut out, header.max_wavelength_nm.unwrap_or(f32::NAN));
+    let unknown = f32::from_bits(header.nan_pattern);
+    put_f32(&mut out, header.single_wavelength_nm.unwrap_or(unknown));
+    put_f32(&mut out, header.min_wavelength_nm.unwrap_or(unknown));
+    put_f32(&mut out, header.max_wavelength_nm.unwrap_or(unknown));
     put_i32(&mut out, header.spectra.len() as i32);
     put_i32(&mut out, header.n_additional_items as i32);
     let text_chars = header.additional_text.chars().count() as i32;
@@ -84,12 +107,17 @@ pub fn encode_header(header: &Header, n_rays: u64) -> Result<Vec<u8>> {
             put_f32(&mut out, *v);
         }
     }
-    put_i32(&mut out, header.column_names.len() as i32);
-    for name in &header.column_names {
-        put_i32(&mut out, name.chars().count() as i32);
-        put_utf32(&mut out, name);
+    // Optional trailer: omitted entirely by writers such as Lumileds, whose
+    // ray block starts right after the fixed header. Mirror what the source
+    // file had so a round trip stays byte exact.
+    if header.has_name_block {
+        put_i32(&mut out, header.column_names.len() as i32);
+        for name in &header.column_names {
+            put_i32(&mut out, name.chars().count() as i32);
+            put_utf32(&mut out, name);
+        }
+        put_utf32(&mut out, &header.additional_text);
     }
-    put_utf32(&mut out, &header.additional_text);
     Ok(out)
 }
 

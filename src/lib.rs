@@ -109,6 +109,134 @@ mod tests {
         h
     }
 
+    /// A Lumileds-style header: luminous flux, tristimulus columns, unknown
+    /// wavelengths written as the signalling NaN, and no 4.7.5/4.7.6 trailer —
+    /// the ray block starts right after the fixed 36 288-byte header.
+    fn header_luxeon() -> Header {
+        let mut flags = KnownDataFlags::photometric();
+        flags.tristimulus = true;
+        let mut h = Header::new(flags);
+        h.creation_method = 1;
+        h.luminous_flux_lm = 23.994_17;
+        h.date_time = "2021-03-15T15:50:05-07:00".into();
+        h.spectral_id = SpectralId::None;
+        h.has_name_block = false;
+        h.nan_pattern = 0x7F80_0001;
+        h.text.raw[0] = "LUXEON_2835N_2780".into();
+        h.text.raw[1] = "Lumileds".into();
+        h
+    }
+
+    /// Files without the optional column-name / additional-text trailer parse:
+    /// the first i32 after the fixed header is ray data, not a count. A real
+    /// Lumileds file read it as −1 089 800 634 and the parse failed.
+    #[test]
+    fn header_without_name_block_round_trips() {
+        let h = header_luxeon();
+        let rays: Vec<Ray> = lambertian_rays(2_000, 1.0, 7)
+            .into_iter()
+            .map(|r| Ray::new(r.position(), r.direction()).with_luminous_flux(0.012))
+            .collect();
+        let bytes = to_bytes(&h, &rays).unwrap();
+        // No trailer: the ray block starts at the fixed header size exactly.
+        assert_eq!(
+            bytes.len(),
+            FIXED_HEADER_SIZE + rays.len() * h.record_size()
+        );
+
+        let f = Tm25File::parse(&bytes).unwrap();
+        assert!(!f.header.has_name_block);
+        assert_eq!(f.header.ray_start, FIXED_HEADER_SIZE);
+        assert_eq!(f.header.n_rays, 2_000);
+        assert_eq!(f.header.flux_kind(), FluxKind::Photometric);
+        assert_eq!(f.header.text.manufacturer(), "Lumileds");
+        assert_eq!(f.rays.iter().count(), 2_000);
+
+        // Byte-exact header round trip, including the vendor's NaN sentinel.
+        let again = to_bytes(&f.header, &rays).unwrap();
+        assert_eq!(&again[..FIXED_HEADER_SIZE], &bytes[..FIXED_HEADER_SIZE]);
+        assert_eq!(f.header.nan_pattern, 0x7F80_0001);
+    }
+
+    /// The trailer is still written and read when the source had one, so both
+    /// vendor shapes survive a round trip unchanged.
+    #[test]
+    fn header_with_name_block_still_round_trips() {
+        let mut h = header_uv();
+        h.n_additional_items = 1;
+        h.column_names = vec!["user column".into()];
+        h.additional_text = "notes".into();
+        let bytes = to_bytes(&h, &[]).unwrap();
+        let f = Tm25File::parse(&bytes).unwrap();
+        assert!(f.header.has_name_block);
+        assert_eq!(f.header.column_names, vec!["user column".to_string()]);
+        assert_eq!(f.header.additional_text, "notes");
+        assert!(f.header.ray_start > FIXED_HEADER_SIZE);
+        assert_eq!(to_bytes(&f.header, &[]).unwrap(), bytes);
+    }
+
+    /// Unknown flux totals are NaN in the file; callers get 0.0 so arithmetic
+    /// does not poison every derived value. Lumileds writes that sentinel
+    /// byte-swapped, so little-endian it decodes to the denormal 2.36e-38
+    /// rather than a NaN — which would look like a real, tiny measurement.
+    #[test]
+    fn unknown_flux_totals_are_normalised() {
+        // Both spellings of "unknown": a plain NaN and the swapped sentinel.
+        for bits in [0x7FC0_0001u32, 0x0100_807F] {
+            let mut h = header_luxeon();
+            h.luminous_flux_lm = f32::from_bits(bits);
+            h.radiant_flux_w = f32::from_bits(bits);
+            let bytes = to_bytes(&h, &[]).unwrap();
+            let f = Tm25File::parse(&bytes).unwrap();
+            assert_eq!(f.header.luminous_flux_lm, 0.0, "bits {bits:#010x}");
+            assert_eq!(f.header.radiant_flux_w, 0.0, "bits {bits:#010x}");
+            assert!(!f.header.total_flux(FluxKind::Photometric).is_nan());
+        }
+    }
+
+    /// A normalised sentinel is written back unchanged, but an edit wins.
+    #[test]
+    fn unknown_sentinel_survives_a_round_trip_unless_edited() {
+        let mut h = header_luxeon();
+        h.radiant_flux_w = f32::from_bits(0x0100_807F);
+        let bytes = to_bytes(&h, &[]).unwrap();
+        let parsed = Tm25File::parse(&bytes).unwrap().header;
+        assert_eq!(parsed.radiant_flux_w, 0.0);
+        // Untouched: the original sentinel bits come back.
+        let again = to_bytes(&parsed, &[]).unwrap();
+        assert_eq!(&again[16..20], &0x0100_807Fu32.to_le_bytes());
+        // Edited: the new value is written instead.
+        let mut edited = parsed.clone();
+        edited.radiant_flux_w = 0.051;
+        let out = to_bytes(&edited, &[]).unwrap();
+        assert_eq!(&out[16..20], &0.051f32.to_bits().to_le_bytes());
+    }
+
+    /// The sentinel is matched exactly. Ordinary measurements must survive,
+    /// including ones whose byte-swapped image happens to look like a NaN.
+    #[test]
+    fn real_values_are_not_mistaken_for_unknown() {
+        let mut h = header_luxeon();
+        h.luminous_flux_lm = 23.994_17;
+        h.radiant_flux_w = 0.051;
+        h.min_wavelength_nm = Some(220.0);
+        h.max_wavelength_nm = Some(320.0);
+        let bytes = to_bytes(&h, &[]).unwrap();
+        let f = Tm25File::parse(&bytes).unwrap();
+        assert_relative_eq!(f.header.luminous_flux_lm, 23.994_17);
+        assert_relative_eq!(f.header.radiant_flux_w, 0.051);
+        assert_eq!(f.header.min_wavelength_nm, Some(220.0));
+
+        // A value whose swapped bytes are a NaN pattern is still a real value.
+        let tricky = f32::from_bits(0x0100_C07F);
+        assert!(!tricky.is_nan());
+        let mut h2 = header_luxeon();
+        h2.luminous_flux_lm = tricky;
+        let b2 = to_bytes(&h2, &[]).unwrap();
+        let f2 = Tm25File::parse(&b2).unwrap();
+        assert_eq!(f2.header.luminous_flux_lm.to_bits(), 0x0100_C07F);
+    }
+
     #[test]
     fn axis_mapping_matches_photometric_solid() {
         // Emission axis (+z) lands on Bevy −Y, C = 0 (+x) on +X, C = 90 (+y) on +Z.
@@ -232,6 +360,7 @@ mod tests {
             &b,
             &ParseOptions {
                 strict_flags: false,
+                ..Default::default()
             },
         )
         .unwrap();

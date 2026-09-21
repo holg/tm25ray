@@ -316,16 +316,33 @@ pub fn columns_from_flags(flags: &KnownDataFlags, n_additional: usize) -> Vec<Co
 }
 
 /// Parsing knobs.
+///
+/// Construct with `..ParseOptions::default()` rather than listing every field,
+/// so that later additions stay source compatible.
 #[derive(Clone, Copy, Debug)]
 pub struct ParseOptions {
     /// Reject flag combinations the reference implementation rejects
     /// (e.g. no flux column at all). Default `true`.
     pub strict_flags: bool,
+    /// Total size of the file in bytes, when the caller knows it.
+    ///
+    /// The 4.7.5/4.7.6 trailer (column names, additional text) is optional in
+    /// practice: ams OSRAM writes it, Lumileds omits it and starts the ray
+    /// block right after the fixed header. Nothing in the header says which,
+    /// and an *empty* trailer (`count = 0`) is indistinguishable from a first
+    /// ray whose x is 0.0. With the total size the question is arithmetic —
+    /// only one of the two candidate offsets leaves room for exactly
+    /// `n_rays × record_size` bytes — so pass it whenever you can.
+    /// `Tm25File::parse` and the memory-mapped reader do this for you.
+    pub total_size: Option<u64>,
 }
 
 impl Default for ParseOptions {
     fn default() -> Self {
-        Self { strict_flags: true }
+        Self {
+            strict_flags: true,
+            total_size: None,
+        }
     }
 }
 
@@ -336,9 +353,9 @@ pub struct Header {
     /// 4.7.1.3. Reference code: 0 = simulation. Vendor files show −1
     /// (presumably "not specified"). Enumeration VERIFY.
     pub creation_method: i32,
-    /// 4.7.1.4, lm. Zero or NaN when unknown.
+    /// 4.7.1.4, lm. Zero when unknown (a NaN in the file is normalised to 0).
     pub luminous_flux_lm: f32,
-    /// 4.7.1.5, W. Zero or NaN when unknown.
+    /// 4.7.1.5, W. Zero when unknown (a NaN in the file is normalised to 0).
     pub radiant_flux_w: f32,
     /// 4.7.1.6.
     pub n_rays: u64,
@@ -367,6 +384,20 @@ pub struct Header {
     pub column_names: Vec<String>,
     /// 4.7.6.
     pub additional_text: String,
+    /// Raw bits of the two flux totals as they appeared in the file, so an
+    /// unknown-value sentinel is reproduced byte for byte on write even though
+    /// the public fields read 0.0. `None` for headers built in code.
+    pub(crate) raw_flux_bits: Option<(u32, u32)>,
+    /// The exact NaN bit pattern this file uses for "unknown" f32 fields
+    /// (ams OSRAM writes `0x7FC00001`, Lumileds `0x7F800001`, the Rust
+    /// default is `0x7FC00000`). Only needed so a round trip is byte exact.
+    pub nan_pattern: u32,
+    /// Whether the file carries the 4.7.5/4.7.6 trailer at all. Lumileds
+    /// LUXEON files go straight from the fixed header to the ray data, ams
+    /// OSRAM files write the count (and a zero-length text). Preserved so a
+    /// round trip reproduces the source byte for byte; [`Header::new`] sets
+    /// it to `true`.
+    pub has_name_block: bool,
     /// Column layout of one ray record, derived from the flags.
     pub columns: Vec<Column>,
     /// Byte offset of the first ray record.
@@ -436,6 +467,9 @@ impl Header {
             spectra: Vec::new(),
             column_names: Vec::new(),
             additional_text: String::new(),
+            has_name_block: true,
+            raw_flux_bits: None,
+            nan_pattern: f32::NAN.to_bits(),
             columns: columns_from_flags(&flags, 0),
             ray_start: 0,
         }
@@ -456,8 +490,15 @@ impl Header {
             return Err(Tm25Error::UnsupportedVersion(version));
         }
         let creation_method = r.i32()?;
-        let luminous_flux_lm = r.f32()?;
-        let radiant_flux_w = r.f32()?;
+        // Unknown totals are written as NaN (Lumileds uses the signalling
+        // 0x7F800001, ams OSRAM writes 0.0). Normalise to 0.0 so callers can
+        // do arithmetic without every product turning into NaN; `has_*_flux`
+        // tells the two apart.
+        let raw_luminous = r.f32()?;
+        let raw_radiant = r.f32()?;
+        let raw_flux_bits = Some((raw_luminous.to_bits(), raw_radiant.to_bits()));
+        let luminous_flux_lm = zero_if_unknown(raw_luminous);
+        let radiant_flux_w = zero_if_unknown(raw_radiant);
         let n_rays = r.u64()?;
         let date_raw = r.take(DATE_TIME_LEN)?;
         let date_time = date_raw
@@ -469,9 +510,18 @@ impl Header {
             .to_string();
         let start_position = r.i32()?;
         let spectral_id = SpectralId::from_i32(r.i32()?);
-        let single_wavelength_nm = opt_f32(r.f32()?);
-        let min_wavelength_nm = opt_f32(r.f32()?);
-        let max_wavelength_nm = opt_f32(r.f32()?);
+        let raw_single = r.f32()?;
+        let raw_min = r.f32()?;
+        let raw_max = r.f32()?;
+        // Remember the vendor's "unknown" sentinel so the writer reproduces it.
+        let nan_pattern = [raw_single, raw_min, raw_max]
+            .iter()
+            .find(|v| is_unknown(**v))
+            .map(|v| v.to_bits())
+            .unwrap_or_else(|| f32::NAN.to_bits());
+        let single_wavelength_nm = opt_f32(raw_single);
+        let min_wavelength_nm = opt_f32(raw_min);
+        let max_wavelength_nm = opt_f32(raw_max);
         let n_spectra = r.i32()?;
         let n_additional_items = r.i32()?;
         let additional_text_size = r.i32()?;
@@ -522,24 +572,87 @@ impl Header {
             spectra.push(t);
         }
         // Column names (4.7.5): count, then length-prefixed UTF-32 strings.
-        let n_names = r.i32()?;
-        if !(0..=1_000).contains(&n_names) {
-            return Err(Tm25Error::InvalidHeader(format!(
-                "implausible column name count {n_names}"
-            )));
-        }
-        let mut column_names = Vec::with_capacity(n_names as usize);
-        for _ in 0..n_names {
-            let len = r.i32()?;
-            if !(0..=10_000).contains(&len) {
-                return Err(Tm25Error::InvalidHeader(format!(
-                    "implausible column name length {len}"
-                )));
+        //
+        // Not every writer emits this block. Lumileds LUXEON files jump
+        // straight from the fixed header to the ray data, so the first i32
+        // there is ray payload, not a count (it decoded as -1 089 800 634).
+        // ams OSRAM files do emit it. Nothing in the header says which, so
+        // decide structurally: accept the block only when the count and the
+        // string lengths that follow are self-consistent. Ray floats fail
+        // that test essentially always, because their bit patterns are huge
+        // or negative integers.
+        let names_at = r.pos;
+        // A *file* that ends exactly here has no trailer and no rays. Only
+        // `total_size` can say that; a slice ending here may just be the
+        // prefix the streaming reader has read so far, and that must report
+        // `Truncated` so the caller grows the buffer.
+        let at_eof = opts.total_size == Some(names_at as u64);
+        let mut column_names = Vec::new();
+        // Try to read the trailer. `Ok(false)` means the bytes are not a
+        // trailer, so they must already be ray data. A `Truncated` error is
+        // different: the caller only handed us a prefix, and it has to grow
+        // the buffer and try again — swallowing it here would silently mistake
+        // a real trailer for ray data whenever the header straddles the end of
+        // the buffer (the streaming reader always does on the first attempt).
+        let mut parsed_trailer = || -> Result<bool> {
+            let n = match r.i32() {
+                Ok(n) => n,
+                Err(e @ Tm25Error::Truncated { .. }) => return Err(e),
+                Err(_) => return Ok(false),
+            };
+            if !(0..=1_000).contains(&n) {
+                return Ok(false);
             }
-            column_names.push(r.utf32_exact(len as usize, "column name")?);
+            for _ in 0..n {
+                let len = match r.i32() {
+                    Ok(v) => v,
+                    Err(e @ Tm25Error::Truncated { .. }) => return Err(e),
+                    Err(_) => return Ok(false),
+                };
+                if !(0..=10_000).contains(&len) {
+                    return Ok(false);
+                }
+                match r.utf32_exact(len as usize, "column name") {
+                    Ok(name) => column_names.push(name),
+                    Err(e @ Tm25Error::Truncated { .. }) => return Err(e),
+                    Err(_) => return Ok(false),
+                }
+            }
+            Ok(true)
+        };
+        // With no size hint an *empty* trailer is ambiguous: four zero bytes
+        // could be `count = 0` or the x of a first ray at the origin. Prefer
+        // the trailer, which is what this crate and ams OSRAM write; callers
+        // that know the file size (`ParseOptions::total_size`, set for you by
+        // `Tm25File::parse` and the mmap reader) get the exact answer below.
+        let mut has_name_block = if at_eof { false } else { parsed_trailer()? };
+        let after_names = r.pos;
+        if !has_name_block {
+            column_names.clear();
+            r.seek(names_at)?;
+        } else if let Some(total) = opts.total_size {
+            // A trailer that parses may still be the first bytes of the ray
+            // block (an empty trailer and a ray starting with 0.0 look the
+            // same). The file size decides: the ray block must end exactly at
+            // the end of the file.
+            let record = (columns_from_flags(&flags, n_additional_items as usize).len() * 4) as u64;
+            let block = n_rays.saturating_mul(record);
+            let text_bytes = additional_text_size as u64 * 4;
+            let with_trailer = after_names as u64 + text_bytes + block == total;
+            let without = names_at as u64 + block == total;
+            if without && !with_trailer {
+                has_name_block = false;
+                column_names.clear();
+                r.seek(names_at)?;
+            }
         }
-        // Additional text (4.7.6). VERIFY: size assumed in code points.
-        let additional_text = r.utf32_exact(additional_text_size as usize, "additional text")?;
+        // Additional text (4.7.6). VERIFY: size assumed in code points. Only
+        // present when the header announced a size and the name block was.
+        let additional_text = if has_name_block && additional_text_size > 0 {
+            r.utf32_exact(additional_text_size as usize, "additional text")?
+        } else {
+            String::new()
+        };
 
         let ray_start = r.pos;
         let columns = columns_from_flags(&flags, n_additional_items as usize);
@@ -563,6 +676,9 @@ impl Header {
             spectra,
             column_names,
             additional_text,
+            has_name_block,
+            raw_flux_bits,
+            nan_pattern,
             columns,
             ray_start,
         };
@@ -646,8 +762,35 @@ pub(crate) const TEXT_FIELD_NAMES: [&str; TEXT_FIELDS] = [
     "data reference",
 ];
 
+/// True for the bit patterns vendors use to mean "not known".
+///
+/// Normally that is a NaN written little-endian like every other field
+/// (ams OSRAM: `01 00 C0 7F`). Lumileds LUXEON files instead write the
+/// sentinel **byte-swapped** (`7F 80 00 01`), which read little-endian is not
+/// a NaN at all but the denormal 2.36e-38 — small enough to look like a real
+/// measurement and poison anything derived from it. The ray data in those same
+/// files is ordinary little-endian, so this is a quirk of the sentinel only.
+///
+/// Matched exactly, never by bit class: a value is "unknown" only if it is a
+/// real NaN or precisely that one swapped pattern.
+fn is_unknown(v: f32) -> bool {
+    // Exact patterns only. An earlier version asked "would the swapped bytes
+    // be a NaN?", which also matched ~0.4 % of ordinary positive values and
+    // would have silently zeroed real measurements.
+    const BYTE_SWAPPED_SENTINEL: u32 = 0x0100_807F;
+    v.is_nan() || v.to_bits() == BYTE_SWAPPED_SENTINEL
+}
+
+fn zero_if_unknown(v: f32) -> f32 {
+    if is_unknown(v) {
+        0.0
+    } else {
+        v
+    }
+}
+
 fn opt_f32(v: f32) -> Option<f32> {
-    if v.is_nan() {
+    if is_unknown(v) {
         None
     } else {
         Some(v)
