@@ -5,7 +5,8 @@
 > LDT/ATLA conversion lives in eulumdat-rs's `eulumdat-tm25`). All fixture assertions below are tests;
 > the real-file test runs when `TM25RAY_FIXTURE` (or the vendor package in
 > `~/Downloads`) is present, synthetic files from the writer cover CI. Measured: the
-> 20M-ray file (560 MB) streams at ~19 M rays/s. Remaining `VERIFY` items are marked
+> 20M-ray file (560 MB) decodes at ~91 M rays/s, ~19 M rays/s through the full
+> far-field + reservoir pipeline (M2 Max; `examples/tm25_bench.rs`). Remaining `VERIFY` items are marked
 > in the code and listed at the end of this document.
 
 ## Role and goal

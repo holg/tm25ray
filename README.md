@@ -21,9 +21,9 @@ tm25ray = "0.1"
 
 - **Zero-copy reader** — `Tm25File::parse(&bytes)` parses the header and
   exposes the ray block as a view, no per-ray allocation.
-- **Streaming reader** — `Tm25Reader::new(any_read)` yields rays in chunks;
-  the 20M-ray / 560 MB vendor file streams at ~19 M rays/s on a laptop. In the
-  browser, feed it `Blob.slice` chunks.
+- **Streaming reader** — `Tm25Reader::new(any_read)` yields rays in chunks; the
+  20M-ray / 560 MB vendor file decodes at ~91 M rays/s (see [Performance](#performance)).
+  In the browser, feed it `Blob.slice` chunks.
 - **All record layouts** — the column set follows the file's known-data
   flags: radiant / luminous flux, per-ray wavelength, Stokes and polarisation
   ellipse, tristimulus, spectrum index, user-defined items. Not just the
@@ -102,7 +102,28 @@ and listed in [`docs/format.md`](docs/format.md).
 ```bash
 cargo run --release --example tm25_info -- file.TM25RAY   # header, spectrum, far-field profile, throughput
 cargo run --release --example tm25_grid -- file.TM25RAY   # the binned C/γ grid as a table
+cargo run --release --example tm25_bench -- file.TM25RAY  # timings per stage (see Performance)
 ```
+
+## Performance
+
+Apple M2 Max, `--release`, warm page cache, 28-byte records (position,
+direction, radiant flux). `cargo run --release --example tm25_bench -- file.TM25RAY`.
+
+| Stage                                   | 20M rays / 560 MB | throughput      |
+| --------------------------------------- | ----------------- | --------------- |
+| header only                             | 0.4 ms            | —               |
+| stream + decode every ray                | 0.22 s            | 91 M rays/s     |
+| `mmap` + decode every ray               | 0.21 s            | 96 M rays/s     |
+| + reservoir, 200k flux-rescaled rays     | 0.33 s            | 61 M rays/s     |
+| + far field, 10°/5° C/γ grid             | 0.95 s            | 21 M rays/s     |
+| far field + reservoir (the viewer's job) | 1.08 s            | 19 M rays/s     |
+
+Throughput is flat from 100k to 20M rays, so the smaller vendor files are
+effectively instant: the 2.8 MB / 100k-ray file runs the whole viewer pipeline
+in 6 ms. The far-field stage dominates because it does a trig call and a
+solid-angle-weighted bin write per ray; decoding is a bounds-checked
+reinterpret of `f32` columns and runs at memory speed.
 
 ## Tests
 
