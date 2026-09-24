@@ -17,6 +17,12 @@ else: no dependencies beyond `thiserror`, `std`-only, runs unchanged on
 tm25ray = "0.1"
 ```
 
+**[Open a ray file in your browser](https://iesna.eu/?wasm=tm25)** — no install,
+nothing uploaded, WebGPU required. More at
+**[holg.github.io/tm25ray](https://holg.github.io/tm25ray/)**.
+
+[![The far-field solid of an ams OSRAM UV-C emitter with the emitting die visible inside it](docs/img/viewer-far-field.jpg)](https://iesna.eu/?wasm=tm25)
+
 ## What you get
 
 - **Zero-copy reader** — `Tm25File::parse(&bytes)` parses the header and

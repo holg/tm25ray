@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>tm25ray</title>
+<meta name="description" content="Rust reader, writer and far-field converter for IES TM-25 ray files (.TM25RAY): the near-field emission of LEDs, as individual rays.">
+<meta property="og:title" content="tm25ray — IES TM-25 ray files in Rust">
+<meta property="og:description" content="Read the near-field ray sets LED makers publish, in Rust or in your browser.">
+<meta property="og:image" content="https://holg.github.io/tm25ray/img/viewer-far-field.jpg">
+<style>
+:root {
+  --bg: #0d0f14;
+  --panel: #141821;
+  --line: #242a36;
+  --fg: #e8ecf1;
+  --dim: #9aa4b2;
+  --accent: #8fb4ff;
+  --accent-strong: #1f6feb;
+  --green: #8ee07a;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 16px/1.65 system-ui, -apple-system, "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 860px; margin: 0 auto; padding: 0 20px 80px; }
+header { padding: 64px 0 40px; }
+.eyebrow {
+  font-size: 11px; letter-spacing: 3px; text-transform: uppercase;
+  color: var(--accent); margin-bottom: 10px;
+}
+h1 { font-size: 44px; font-weight: 300; margin: 0 0 14px; letter-spacing: -0.5px; }
+.lede { font-size: 19px; color: var(--dim); margin: 0 0 26px; max-width: 62ch; }
+.btns { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.btn {
+  display: inline-block; padding: 11px 20px; border-radius: 7px;
+  text-decoration: none; font-size: 15px; border: 1px solid transparent;
+}
+.btn-primary { background: var(--accent-strong); color: #fff; }
+.btn-primary:hover { background: #2b7cf7; }
+.btn-ghost { border-color: var(--line); color: var(--fg); }
+.btn-ghost:hover { border-color: var(--accent); color: var(--accent); }
+.note { font-size: 13px; color: var(--dim); margin-top: 10px; }
+figure { margin: 34px 0 0; }
+figure img {
+  width: 100%; height: auto; display: block;
+  border: 1px solid var(--line); border-radius: 10px; background: #000;
+}
+figcaption { font-size: 13px; color: var(--dim); margin-top: 9px; }
+h2 {
+  font-size: 13px; letter-spacing: 2.5px; text-transform: uppercase;
+  color: var(--accent); margin: 52px 0 14px; font-weight: 600;
+}
+h3 { font-size: 17px; font-weight: 500; margin: 26px 0 8px; }
+p { margin: 0 0 15px; }
+a { color: var(--accent); }
+code {
+  font-family: var(--mono); font-size: 0.9em;
+  background: var(--panel); padding: 2px 6px; border-radius: 4px;
+}
+pre {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+  padding: 14px 16px; overflow-x: auto; font-family: var(--mono);
+  font-size: 13.5px; line-height: 1.6; margin: 0 0 16px;
+}
+pre code { background: none; padding: 0; }
+table { width: 100%; border-collapse: collapse; margin: 6px 0 12px; font-size: 14.5px; }
+th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--line); }
+th { color: var(--dim); font-weight: 500; font-size: 12.5px;
+     letter-spacing: 0.4px; text-transform: uppercase; }
+td.num { font-family: var(--mono); text-align: right; white-space: nowrap; }
+.cards { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 9px; padding: 15px 17px; }
+.card h4 { margin: 0 0 6px; font-size: 15px; font-weight: 500; }
+.card p { margin: 0; font-size: 14px; color: var(--dim); }
+.callout {
+  border-left: 3px solid var(--green); background: #12180f66;
+  padding: 13px 17px; border-radius: 0 7px 7px 0; margin: 0 0 16px;
+}
+.callout p { margin: 0; font-size: 15px; }
+footer {
+  border-top: 1px solid var(--line); margin-top: 58px; padding-top: 22px;
+  font-size: 14px; color: var(--dim);
+}
+@media (max-width: 600px) {
+  h1 { font-size: 33px; }
+  .lede { font-size: 17px; }
+  header { padding: 40px 0 28px; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="eyebrow">IES TM-25 · Rust · WebAssembly</div>
+  <h1>tm25ray</h1>
+  <p class="lede">
+    Reader, writer and far-field converter for the ray files LED manufacturers
+    publish: the near-field emission of a source, stored as millions of
+    individual rays.
+  </p>
+  <div class="btns">
+    <a class="btn btn-primary" href="https://iesna.eu/?wasm=tm25">Open the viewer</a>
+    <a class="btn btn-ghost" href="https://github.com/holg/tm25ray">GitHub</a>
+    <a class="btn btn-ghost" href="https://crates.io/crates/tm25ray">crates.io</a>
+    <a class="btn btn-ghost" href="https://docs.rs/tm25ray">docs.rs</a>
+  </div>
+  <p class="note">
+    The viewer runs in the browser and needs WebGPU (Chrome, Edge, or Safari 26).
+    Nothing is uploaded: the file is read locally.
+  </p>
+</header>
+
+<figure>
+  <img src="img/viewer-far-field.jpg" alt="A rendered far-field solid, coloured green to blue, with the bright rectangular emitting surface of the LED die visible inside it.">
+  <figcaption>
+    An ams OSRAM UV-C emitter: 500 000 rays leaving the die, wrapped in the
+    far-field solid computed from all of them. The bright rectangle in the
+    middle is the emitting surface itself, which is the thing a ray file
+    records and an ordinary photometric file cannot.
+  </figcaption>
+</figure>
+
+<h2>What a TM-25 file is</h2>
+
+<p>
+  An LDT or IES photometric file describes a luminaire as a point: intensity
+  in every direction, measured far enough away that the size of the source no
+  longer matters. That is all a lighting designer needs for a room.
+</p>
+<p>
+  It is not enough for someone designing the optic itself. Put a lens two
+  millimetres above a die and the point-source assumption collapses, because
+  different parts of the lens see different parts of the emitter. So LED makers
+  publish ray files instead: every ray with a start point in millimetres, a
+  direction, a flux, and optionally a wavelength, polarisation state or colour
+  coordinates. Packages run from 100 000 to 20 million rays.
+</p>
+<p>
+  IES TM-25 is the vendor-neutral format for that data, consumed by Zemax
+  OpticStudio, LightTools, SPEOS and similar tools. ams OSRAM, Lumileds,
+  Nichia and Cree all ship it. Until this crate there was no open-source
+  reader, and the specification is paywalled.
+</p>
+
+<div class="callout">
+  <p>
+    <strong>Two vendors, two interpretations.</strong> The optional column-name
+    trailer is written by ams OSRAM and omitted by Lumileds, so the ray block
+    starts at a different offset with nothing in the header to say which.
+    Lumileds also writes the “value unknown” sentinel with its bytes reversed,
+    which read little-endian is not a NaN but the denormal 2.36 × 10⁻³⁸ — small
+    enough to pass for a real measurement. Both are handled, and the differences
+    are written up in
+    <a href="https://github.com/holg/tm25ray/blob/main/docs/format.md">the format notes</a>.
+  </p>
+</div>
+
+<h2>What the viewer shows</h2>
+
+<div class="cards">
+  <div class="card">
+    <h4>The rays</h4>
+    <p>Drawn from their real start points, so the die, the lens exit and the package geometry are visible.</p>
+  </div>
+  <div class="card">
+    <h4>Far-field solid</h4>
+    <p>Every ray binned into a C/γ grid with solid-angle normalisation — the same distribution an LDT would carry.</p>
+  </div>
+  <div class="card">
+    <h4>Near-field irradiance</h4>
+    <p>A target plane from 0.1 mm to 500 mm above the source, in W/m², where the point-source model breaks down.</p>
+  </div>
+  <div class="card">
+    <h4>Spectrum and safety</h4>
+    <p>PPFD for horticultural sources, and ICNIRP actinic dose for UV emitters, from the header spectrum.</p>
+  </div>
+</div>
+
+<p style="margin-top:18px">
+  The viewer exports what it computes as EULUMDAT, IES, ATLA XML with the
+  spectrum attached, or a relative <code>.spd</code>. It can also hand the ray
+  set to a Monte Carlo goniophotometer, which replays the stored rays through a
+  cover or reflector you place millimetres away.
+</p>
+
+<figure>
+  <img src="img/viewer-rays.jpg" alt="The same emitter drawn as rays only, a dense cloud of fine lines spreading outward and downward from a small rectangular source.">
+  <figcaption>The same file with the solid switched off: 200 000 flux-weighted rays, additively blended.</figcaption>
+</figure>
+
+<h2>Performance</h2>
+
+<p>
+  Apple M2 Max, release build, warm page cache, 28-byte records. The 20-million
+  ray file is 560 MB.
+</p>
+
+<table>
+  <thead>
+    <tr><th>Stage</th><th style="text-align:right">Time</th><th style="text-align:right">Throughput</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Header only</td><td class="num">0.4 ms</td><td class="num">—</td></tr>
+    <tr><td>Stream and decode every ray</td><td class="num">0.22 s</td><td class="num">91 M rays/s</td></tr>
+    <tr><td>Memory-mapped decode</td><td class="num">0.21 s</td><td class="num">96 M rays/s</td></tr>
+    <tr><td>Plus reservoir, 200k rays kept</td><td class="num">0.33 s</td><td class="num">61 M rays/s</td></tr>
+    <tr><td>Plus far field, 10°/5° grid</td><td class="num">0.95 s</td><td class="num">21 M rays/s</td></tr>
+    <tr><td>Far field and reservoir together</td><td class="num">1.08 s</td><td class="num">19 M rays/s</td></tr>
+  </tbody>
+</table>
+
+<p>
+  Throughput is flat from 100 000 to 20 million rays, so the files most people
+  download finish in milliseconds. Decoding is a bounds-checked reinterpret of
+  <code>f32</code> columns and runs at memory speed; the far-field stage costs
+  more because every ray needs a trigonometric call and a solid-angle-weighted
+  bin write. Reproduce it with
+  <code>cargo run --release --example tm25_bench -- file.TM25RAY</code>.
+</p>
+
+<h2>Using the crate</h2>
+
+<pre><code>[dependencies]
+tm25ray = "0.1"</code></pre>
+
+<p>No dependencies beyond <code>thiserror</code>, <code>std</code>-only, and it builds unchanged for <code>wasm32</code>.</p>
+
+<h3>Read a file and bin its far field</h3>
+
+<pre><code>use tm25ray::{FarField, FluxKind, Tm25File};
+
+let bytes = std::fs::read("rayfile_100k.TM25RAY")?;
+let file = Tm25File::parse(&bytes)?;
+let h = &file.header;
+println!("{} rays, {:?}, {} W", h.n_rays, h.flux_kind(), h.radiant_flux_w);
+
+let rays: Vec&lt;_&gt; = file.rays.iter().collect();
+let ff = FarField::from_rays(&rays, 10.0, 5.0, FluxKind::Radiometric);
+println!("half intensity at {:?}°", ff.half_intensity_gamma());</code></pre>
+
+<h3>Stream a file too large to hold</h3>
+
+<pre><code>use std::io::BufReader;
+use tm25ray::{Reservoir, Tm25Reader};
+
+let file = std::fs::File::open("rayfile_20M.TM25RAY")?;
+let mut reader = Tm25Reader::new(BufReader::with_capacity(1 &lt;&lt; 20, file))?;
+let mut keep = Reservoir::new(200_000, 1);
+loop {
+    let chunk = reader.read_chunk(65_536)?;
+    if chunk.is_empty() { break; }
+    keep.extend(chunk);
+}
+let rays = keep.finish(); // flux rescaled to the file total</code></pre>
+
+<p>
+  In the browser the same reader is fed <code>Blob.slice</code> chunks, which is
+  how the viewer handles a 560 MB file without loading it. The subsampling keeps
+  a fixed number of rays and rescales their flux, so the total is preserved.
+</p>
+
+<h2>Getting a file to try</h2>
+
+<p>
+  Vendor licences permit use but not redistribution, so no ray file ships with
+  this project. ams OSRAM and Lumileds both offer them as free downloads on
+  their product pages, usually next to the datasheet, in several ray counts.
+  The 100 000-ray version is the one to start with.
+</p>
+
+<footer>
+  <p>
+    AGPL-3.0-or-later. Part of the
+    <a href="https://github.com/holg/eulumdat-rs">eulumdat-rs</a> family of
+    photometry tools, whose <code>eulumdat-tm25</code> bridge converts a far
+    field into an EULUMDAT document. Verified against the C++ reference
+    implementation,
+    <a href="https://github.com/JuliusMuschaweck/TM25RaySetTools">TM25RaySetTools</a>.
+  </p>
+</footer>
+
+</div>
+</body>
+</html>

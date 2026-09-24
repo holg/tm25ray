@@ -7,12 +7,13 @@ authors = ["Holger Trahe <trahe@mac.com>"]
 license = "AGPL-3.0-or-later"
 description = "Reader, writer and far-field converter for IES TM-25 ray files (.TM25RAY): near-field LED and light-source ray sets — zero-copy, streaming, WASM-clean, no dependencies"
 repository = "https://github.com/holg/tm25ray"
-homepage = "https://github.com/holg/tm25ray"
+homepage = "https://holg.github.io/tm25ray/"
 documentation = "https://docs.rs/tm25ray"
 readme = "README.md"
 keywords = ["tm-25", "ray-file", "photometry", "led", "optics"]
 categories = ["science", "parser-implementations", "multimedia"]
-exclude = ["/.github", "/docs/*.pdf"]
+# The landing page and its images are for GitHub Pages, not for the crate.
+exclude = ["/.github", "/docs/*.pdf", "/docs/index.html", "/docs/img"]
 
 [features]
 default = []
