@@ -1,5 +1,9 @@
 /target
 Cargo.lock
+# Vendor ray files may be used but not redistributed: never commit one.
 *.TM25RAY
 *.tm25ray
+# Except the generated samples, which are ours to give away
+# (examples/tm25_sample.rs writes them).
+!docs/sample/*.TM25RAY
 tmp/
