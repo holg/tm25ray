@@ -106,7 +106,10 @@ footer {
     individual rays.
   </p>
   <div class="btns">
-    <a class="btn btn-primary" href="https://iesna.eu/?wasm=tm25">Open the viewer</a>
+    <a class="btn btn-primary"
+       href="https://iesna.eu/?wasm=tm25&amp;url=https://holg.github.io/tm25ray/sample/sample_white_led_25k.TM25RAY">
+      Open the viewer with a sample
+    </a>
     <a class="btn btn-ghost" href="https://github.com/holg/tm25ray">GitHub</a>
     <a class="btn btn-ghost" href="https://crates.io/crates/tm25ray">crates.io</a>
     <a class="btn btn-ghost" href="https://docs.rs/tm25ray">docs.rs</a>
@@ -279,12 +282,22 @@ let rays = keep.finish(); // flux rescaled to the file total</code></pre>
 </p>
 
 <div class="btns">
-  <a class="btn btn-primary" href="sample/sample_white_led_25k.TM25RAY" download>Sample, 25k rays (0.8 MB)</a>
-  <a class="btn btn-ghost" href="sample/sample_white_led_100k.TM25RAY" download>100k rays (3.2 MB)</a>
+  <a class="btn btn-primary"
+     href="https://iesna.eu/?wasm=tm25&amp;url=https://holg.github.io/tm25ray/sample/sample_white_led_25k.TM25RAY">
+    Open the sample in the viewer
+  </a>
+  <a class="btn btn-ghost"
+     href="https://iesna.eu/?wasm=tm25&amp;url=https://holg.github.io/tm25ray/sample/sample_white_led_100k.TM25RAY">
+    Open the 100k version
+  </a>
 </div>
 <p class="note">
-  Download one, then drop it on <a href="https://iesna.eu/?wasm=tm25">the viewer</a>.
-  Both files describe the same source: 1.05 W radiant, half intensity at 62°.
+  One click: the viewer fetches the file and loads it. To keep a copy instead,
+  download
+  <a href="sample/sample_white_led_25k.TM25RAY" download>25k rays (0.8 MB)</a> or
+  <a href="sample/sample_white_led_100k.TM25RAY" download>100k rays (3.2 MB)</a>
+  and drop it on the page. Both describe the same source: 1.05 W radiant,
+  half intensity at 62°.
 </p>
 
 <p style="margin-top:18px">

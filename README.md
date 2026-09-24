@@ -17,9 +17,9 @@ else: no dependencies beyond `thiserror`, `std`-only, runs unchanged on
 tm25ray = "0.1"
 ```
 
-**[Open a ray file in your browser](https://iesna.eu/?wasm=tm25)** — no install,
-nothing uploaded, WebGPU required. More at
-**[holg.github.io/tm25ray](https://holg.github.io/tm25ray/)**.
+**[Open a sample in your browser](https://iesna.eu/?wasm=tm25&url=https://holg.github.io/tm25ray/sample/sample_white_led_25k.TM25RAY)**
+— one click, no install, WebGPU required. Your own files are read locally and
+never uploaded. More at **[holg.github.io/tm25ray](https://holg.github.io/tm25ray/)**.
 
 [![The far-field solid of an ams OSRAM UV-C emitter with the emitting die visible inside it](docs/img/viewer-far-field.jpg)](https://iesna.eu/?wasm=tm25)
 
@@ -151,6 +151,9 @@ per-ray wavelength. It is a simulation and the header says so.
 ```bash
 cargo run --release --example tm25_sample -- out.TM25RAY 250000
 ```
+
+The viewer also takes a `url` parameter, so any CORS-enabled `.TM25RAY` can be
+opened by link: `iesna.eu/?wasm=tm25&url=<file>`.
 
 Real measured files come from the manufacturers' product pages (ams OSRAM,
 Lumileds, Nichia, Cree), which is what this crate was verified against.
