@@ -266,13 +266,38 @@ let rays = keep.finish(); // flux rescaled to the file total</code></pre>
   a fixed number of rays and rescales their flux, so the total is preserved.
 </p>
 
-<h2>Getting a file to try</h2>
+<h2>A file to try</h2>
 
 <p>
-  Vendor licences permit use but not redistribution, so no ray file ships with
-  this project. ams OSRAM and Lumileds both offer them as free downloads on
-  their product pages, usually next to the datasheet, in several ray counts.
-  The 100 000-ray version is the one to start with.
+  Vendor licences permit use but not redistribution, so no manufacturer's file
+  can ship here. Instead there is a generated one, free to copy, ray-traced
+  from an analytic model: a 1 mm square chip emitting Lambertian under a
+  1.4 mm silicone dome, refracted at the dome surface by Snell's law, with a
+  small fraction escaping past the rim. It carries a phosphor-white spectrum
+  and a per-ray wavelength, so the spectral colouring in the viewer has
+  something to show.
+</p>
+
+<div class="btns">
+  <a class="btn btn-primary" href="sample/sample_white_led_25k.TM25RAY" download>Sample, 25k rays (0.8 MB)</a>
+  <a class="btn btn-ghost" href="sample/sample_white_led_100k.TM25RAY" download>100k rays (3.2 MB)</a>
+</div>
+<p class="note">
+  Download one, then drop it on <a href="https://iesna.eu/?wasm=tm25">the viewer</a>.
+  Both files describe the same source: 1.05 W radiant, half intensity at 62°.
+</p>
+
+<p style="margin-top:18px">
+  It is a simulation and its header says so, in the creation-method field and in
+  the description strings. The numbers are plausible rather than a real
+  product's. Regenerate it at any size with
+  <code>cargo run --release --example tm25_sample -- out.TM25RAY 250000</code>.
+</p>
+
+<p>
+  For real measured data, ams OSRAM, Lumileds, Nichia and Cree publish ray files
+  on their product pages, usually beside the datasheet and in several ray
+  counts. Those are the files this crate was verified against.
 </p>
 
 <footer>

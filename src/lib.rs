@@ -237,6 +237,28 @@ mod tests {
         assert_eq!(f2.header.luminous_flux_lm.to_bits(), 0x0100_C07F);
     }
 
+    /// Builder methods for the optional per-ray columns write and read back.
+    #[test]
+    fn wavelength_and_spectrum_index_round_trip() {
+        let mut flags = KnownDataFlags::radiometric();
+        flags.wavelength = true;
+        let mut h = Header::new(flags);
+        h.radiant_flux_w = 1.0;
+        let rays: Vec<Ray> = (0..64)
+            .map(|i| {
+                Ray::new([0.0, 0.0, 0.0], [0.0, 0.0, 1.0])
+                    .with_radiant_flux(1.0 / 64.0)
+                    .with_wavelength(400.0 + i as f32)
+            })
+            .collect();
+        let bytes = to_bytes(&h, &rays).unwrap();
+        let back = Tm25File::parse(&bytes).unwrap();
+        let decoded: Vec<Ray> = back.rays.iter().collect();
+        assert_eq!(decoded.len(), 64);
+        assert_eq!(decoded[0].wavelength_nm, Some(400.0));
+        assert_eq!(decoded[63].wavelength_nm, Some(463.0));
+    }
+
     #[test]
     fn axis_mapping_matches_photometric_solid() {
         // Emission axis (+z) lands on Bevy −Y, C = 0 (+x) on +X, C = 90 (+y) on +Z.

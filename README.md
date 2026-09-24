@@ -114,6 +114,8 @@ and listed in [`docs/format.md`](docs/format.md).
 cargo run --release --example tm25_info -- file.TM25RAY   # header, spectrum, far-field profile, throughput
 cargo run --release --example tm25_grid -- file.TM25RAY   # the binned C/γ grid as a table
 cargo run --release --example tm25_bench -- file.TM25RAY  # timings per stage (see Performance)
+cargo run --release --example tm25_sample -- out.TM25RAY   # write a synthetic file to open
+cargo run --release --example tm25_roundtrip -- file.TM25RAY # header parses and re-writes byte for byte
 ```
 
 ## Performance
@@ -135,6 +137,23 @@ effectively instant: the 2.8 MB / 100k-ray file runs the whole viewer pipeline
 in 6 ms. The far-field stage dominates because it does a trig call and a
 solid-angle-weighted bin write per ray; decoding is a bounds-checked
 reinterpret of `f32` columns and runs at memory speed.
+
+## A file to try
+
+Vendor ray files may be used but not redistributed, so the repository carries a
+generated one instead: a 1 mm chip under a 1.4 mm silicone dome, Snell
+refraction at the dome surface, rim leakage, a phosphor-white spectrum and a
+per-ray wavelength. It is a simulation and the header says so.
+
+- [`docs/sample/sample_white_led_25k.TM25RAY`](docs/sample/sample_white_led_25k.TM25RAY) (0.8 MB)
+- [`docs/sample/sample_white_led_100k.TM25RAY`](docs/sample/sample_white_led_100k.TM25RAY) (3.2 MB)
+
+```bash
+cargo run --release --example tm25_sample -- out.TM25RAY 250000
+```
+
+Real measured files come from the manufacturers' product pages (ams OSRAM,
+Lumileds, Nichia, Cree), which is what this crate was verified against.
 
 ## Tests
 

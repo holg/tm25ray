@@ -44,6 +44,18 @@ impl Ray {
         self
     }
 
+    /// Per-ray wavelength, nm (needs `KnownDataFlags::wavelength`).
+    pub fn with_wavelength(mut self, nm: f32) -> Self {
+        self.wavelength_nm = Some(nm);
+        self
+    }
+
+    /// 1-based index into `Header::spectra` (needs spectral id 4).
+    pub fn with_spectrum_index(mut self, i: u32) -> Self {
+        self.spectrum_index = Some(i);
+        self
+    }
+
     pub fn position(&self) -> [f32; 3] {
         [self.x, self.y, self.z]
     }

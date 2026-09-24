@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- `examples/tm25_sample.rs` writes a synthetic but physically modelled file
+  (Lambertian chip, Snell refraction at a silicone dome, rim leakage,
+  phosphor-white spectrum with per-ray wavelengths), so the format and the
+  viewer can be tried without a vendor download. Two generated files are in
+  `docs/sample/`; neither ships in the crate.
+- `Ray::with_wavelength` and `Ray::with_spectrum_index`, to match the existing
+  flux builders.
+- A landing page for GitHub Pages at holg.github.io/tm25ray.
+
 ## [0.1.1] - 2026-09-21
 
 Vendor-compatibility fixes found on Lumileds LUXEON files, which 0.1.0 could

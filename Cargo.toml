@@ -13,7 +13,7 @@ readme = "README.md"
 keywords = ["tm-25", "ray-file", "photometry", "led", "optics"]
 categories = ["science", "parser-implementations", "multimedia"]
 # The landing page and its images are for GitHub Pages, not for the crate.
-exclude = ["/.github", "/docs/*.pdf", "/docs/index.html", "/docs/img"]
+exclude = ["/.github", "/docs/*.pdf", "/docs/index.html", "/docs/img", "/docs/sample"]
 
 [features]
 default = []
