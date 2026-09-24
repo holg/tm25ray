@@ -115,8 +115,9 @@ footer {
     <a class="btn btn-ghost" href="https://docs.rs/tm25ray">docs.rs</a>
   </div>
   <p class="note">
-    The viewer runs in the browser and needs WebGPU (Chrome, Edge, or Safari 26).
-    Nothing is uploaded: the file is read locally.
+    Runs in the browser, no install: as far as I can tell the only TM-25 viewer
+    that does. Needs WebGPU (Chrome, Edge, or Safari 26). Your own files are
+    read locally and never uploaded.
   </p>
 </header>
 
@@ -148,8 +149,17 @@ footer {
 <p>
   IES TM-25 is the vendor-neutral format for that data, consumed by Zemax
   OpticStudio, LightTools, SPEOS and similar tools. ams OSRAM, Lumileds,
-  Nichia and Cree all ship it. Until this crate there was no open-source
-  reader, and the specification is paywalled.
+  Nichia and Cree all ship it. The specification itself is paywalled, so the
+  open implementations are how the format is actually documented in public:
+  Julius Muschaweck's C++
+  <a href="https://github.com/JuliusMuschaweck/TM25RaySetTools">TM25RaySetTools</a>,
+  whose field names carry the specification's section numbers and which this
+  crate was checked against line by line, and Larry Boxler's C#
+  <a href="https://github.com/LarryBoxler/IESTM25RayFiles">IESTM25RayFiles</a>.
+  What was missing was a reader you can depend on as a library, and a way to
+  look at a ray file without installing anything. The existing viewers are a
+  Windows desktop application or a feature of Zemax, TracePro and SPEOS; this
+  is, as far as I can tell, the only one that runs in a browser.
 </p>
 
 <div class="callout">
@@ -318,9 +328,16 @@ let rays = keep.finish(); // flux rescaled to the file total</code></pre>
     AGPL-3.0-or-later. Part of the
     <a href="https://github.com/holg/eulumdat-rs">eulumdat-rs</a> family of
     photometry tools, whose <code>eulumdat-tm25</code> bridge converts a far
-    field into an EULUMDAT document. Verified against the C++ reference
-    implementation,
-    <a href="https://github.com/JuliusMuschaweck/TM25RaySetTools">TM25RaySetTools</a>.
+    field into an EULUMDAT document.
+  </p>
+  <p>
+    The layout was reverse-engineered from vendor files and then checked field
+    by field against
+    <a href="https://github.com/JuliusMuschaweck/TM25RaySetTools">TM25RaySetTools</a>,
+    the C++ reference implementation by Julius Muschaweck. Without it the
+    remaining ambiguities would have been guesswork rather than the short
+    <code>VERIFY</code> list in the
+    <a href="https://github.com/holg/tm25ray/blob/main/docs/format.md">format notes</a>.
   </p>
 </footer>
 

@@ -12,6 +12,13 @@ consume. This crate reads and writes those files without pulling in anything
 else: no dependencies beyond `thiserror`, `std`-only, runs unchanged on
 `wasm32`, and streams multi-GB files without loading them.
 
+There are open implementations already, in [C++](https://github.com/JuliusMuschaweck/TM25RaySetTools)
+and [C#](https://github.com/LarryBoxler/IESTM25RayFiles) (see
+[Related](#related)); the first is what this one was verified against. What was
+missing was a reader to depend on as a library, and a viewer that needs no
+install — the existing ones are a Windows desktop app or a feature of Zemax,
+TracePro and SPEOS.
+
 ```toml
 [dependencies]
 tm25ray = "0.1"
@@ -172,7 +179,13 @@ redistributed; their licences allow use, not redistribution.
   EULUMDAT document and attaches the header spectrum, and its Bevy viewer
   renders ray files in 3D.
 - [TM25RaySetTools](https://github.com/JuliusMuschaweck/TM25RaySetTools) —
-  the C++ reference implementation this crate was verified against.
+  Julius Muschaweck's C++ reference implementation, and the reason this crate
+  could be finished. The TM-25 specification is paywalled; his field names
+  carry its section numbers, so the layout here was checked against it field by
+  field rather than guessed. Also converts to and from Zemax, LightTools and
+  ASAP, and interpolates ray sets.
+- [IESTM25RayFiles](https://github.com/LarryBoxler/IESTM25RayFiles) —
+  Larry Boxler's C# library and viewer, which ships a sample file.
 
 ## Licence
 
