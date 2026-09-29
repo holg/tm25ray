@@ -115,6 +115,10 @@ field by field against the field names of the C++ reference implementation
 paywalled; the few details only it can settle are marked `VERIFY` in the code
 and listed in [`docs/format.md`](docs/format.md).
 
+How to get luminance (not just intensity) out of a ray file, with the noise
+trade-offs and a numerical check, is written up in
+[`docs/luminance.md`](docs/luminance.md).
+
 ## Examples
 
 ```bash
