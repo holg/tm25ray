@@ -4,6 +4,8 @@
 > currently computes far-field intensity only (`src/farfield.rs`). The numbers
 > below come from a numerical check against an analytic emitter, described at
 > the end, so the method is verified even though the crate does not ship it.
+> The emitter is available as a file to test other software against:
+> [`sample/lambertian_1mm_1M.TM25RAY`](sample/lambertian_1mm_1M.TM25RAY).
 
 ## Why ray files can answer this at all
 
@@ -193,3 +195,19 @@ above, and the sum `Σ L · A_pix` equals the cone intensity to four digits in
 every case. Moving all start points 2 mm along their rays onto a plane above
 the emitter left the luminance unchanged (1.011 on axis), as the conservation
 argument predicts.
+
+## Ground-truth file
+
+[`sample/lambertian_1mm_1M.TM25RAY`](sample/lambertian_1mm_1M.TM25RAY)
+(28 MB, written by `examples/tm25_lambertian.rs`) is that emitter as a TM-25
+file: a 1 × 1 mm square centred on the origin in the z = 0 plane, 1 W radiant,
+1,000,000 equal-flux rays, no spectrum. The expected radiance is
+318,310 W/(sr·m²) at every point on the square and in every direction of the
+upper hemisphere; the far field is `I(γ) = (1/π) W/sr · cos γ`, half intensity
+at 60°. Run through the estimator above, with a 5° cone and 0.05 mm pixels, the
+file itself gives 1.004, 0.982 and 1.004 times the expected value at γ = 0°,
+45° and 70°, with 23 to 24 % pixel noise, as the formula predicts.
+
+The white LED samples next to it are not a ground truth, but they are valid
+input: each ray starts where it leaves the package, on the dome or in the rim
+gap, so start point and direction lie on the same line in air.

@@ -18,6 +18,12 @@
 //! blue peak and a broad phosphor emission, and the per-ray wavelength is drawn
 //! from that spectrum, so the viewer's spectral colouring has something to show.
 //!
+//! Each ray's start point is where it leaves the package: on the dome surface
+//! for refracted rays, in the rim gap for the others. That is what a vendor
+//! file records, and it keeps start point and direction on the same straight
+//! line in air, which luminance computations rely on (`docs/luminance.md`).
+//! The chip itself shows through the dome only as the image a viewer sees.
+//!
 //! Everything is computed from the geometry; nothing is copied from a vendor
 //! file. See `docs/format.md` for the layout being written.
 
@@ -33,6 +39,8 @@ const DOME_R: f64 = 1.4;
 const N_SILICONE: f64 = 1.41;
 /// Fraction of rays that escape past the dome rim instead of through it.
 const RIM_FRACTION: f64 = 0.06;
+/// Width of the rim gap around the dome base, mm.
+const RIM_GAP: f64 = 0.15;
 /// Radiant flux of the whole file, W.
 const TOTAL_FLUX_W: f32 = 1.05;
 
@@ -54,10 +62,10 @@ fn main() {
     let flux_each = TOTAL_FLUX_W / n as f32;
 
     for _ in 0..n {
-        // Start point: uniform on the square chip, at z = 0.
+        // Emission point: uniform on the square chip, at z = 0.
         let ox = (rng.next_f64() * 2.0 - 1.0) * CHIP_HALF;
         let oy = (rng.next_f64() * 2.0 - 1.0) * CHIP_HALF;
-        let origin = [ox, oy, 0.0];
+        let chip_point = [ox, oy, 0.0];
 
         // Lambertian emission into the upper hemisphere.
         let u = rng.next_f64();
@@ -66,14 +74,19 @@ fn main() {
         let cos_g = (1.0 - u).sqrt();
         let dir = [sin_g * phi.cos(), sin_g * phi.sin(), cos_g];
 
-        let out = if rng.next_f64() < RIM_FRACTION {
+        let (origin, out) = if rng.next_f64() < RIM_FRACTION {
             // Escapes through the rim gap: pushed towards the horizon, which
-            // is what puts the shoulder in the far field.
+            // is what puts the shoulder in the far field. It leaves from the
+            // gap itself, a ring just outside the dome base.
             let g = 70f64.to_radians() + rng.next_f64() * 18f64.to_radians();
             let a = 2.0 * PI * rng.next_f64();
-            [g.sin() * a.cos(), g.sin() * a.sin(), g.cos()]
+            let r = DOME_R + rng.next_f64() * RIM_GAP;
+            (
+                [r * a.cos(), r * a.sin(), 0.0],
+                [g.sin() * a.cos(), g.sin() * a.sin(), g.cos()],
+            )
         } else {
-            refract_through_dome(origin, dir)
+            refract_through_dome(chip_point, dir)
         };
 
         let wl = sample_wavelength(&spectrum, &cdf, rng.next_f64());
@@ -130,28 +143,29 @@ fn main() {
 }
 
 /// Refract a ray leaving the chip at the silicone/air boundary of the dome.
+/// Returns the exit point on the dome and the direction in air.
 ///
 /// The dome is a sphere of radius `DOME_R` centred on the chip centre, so the
 /// exit point is where the ray meets it and the surface normal is radial.
-/// Total internal reflection is handled by reflecting once and re-refracting;
-/// if that still fails the ray is left along the surface tangent, which is
-/// rare enough not to matter for a demonstration file.
-fn refract_through_dome(origin: [f64; 3], dir: [f64; 3]) -> [f64; 3] {
+/// Total internal reflection is handled by reflecting once and re-refracting
+/// at the second hit; if that still fails the reflected ray is kept as it is,
+/// which is rare enough not to matter for a demonstration file.
+fn refract_through_dome(origin: [f64; 3], dir: [f64; 3]) -> ([f64; 3], [f64; 3]) {
     let Some(hit) = sphere_exit(origin, dir, DOME_R) else {
-        return dir;
+        return (origin, dir);
     };
     let n = normalise(hit);
     match refract(dir, n, N_SILICONE, 1.0) {
-        Some(t) => t,
+        Some(t) => (hit, t),
         None => {
             // Total internal reflection: bounce off the dome, try again.
             let r = reflect(dir, n);
             match sphere_exit(hit, r, DOME_R) {
                 Some(h2) => {
                     let n2 = normalise(h2);
-                    refract(r, n2, N_SILICONE, 1.0).unwrap_or(r)
+                    (h2, refract(r, n2, N_SILICONE, 1.0).unwrap_or(r))
                 }
-                None => r,
+                None => (hit, r),
             }
         }
     }

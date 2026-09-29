@@ -4,6 +4,6 @@ Cargo.lock
 *.TM25RAY
 *.tm25ray
 # Except the generated samples, which are ours to give away
-# (examples/tm25_sample.rs writes them).
+# (examples/tm25_sample.rs and tm25_lambertian.rs write them).
 !docs/sample/*.TM25RAY
 tmp/

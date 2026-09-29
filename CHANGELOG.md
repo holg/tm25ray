@@ -7,6 +7,15 @@
   phosphor-white spectrum with per-ray wavelengths), so the format and the
   viewer can be tried without a vendor download. Two generated files are in
   `docs/sample/`; neither ships in the crate.
+- The sample rays start where they leave the package (dome surface or rim
+  gap) instead of on the chip, so start point and direction lie on one line
+  in air. The chip-origin version was unusable for luminance. Both sample
+  files are regenerated.
+- `examples/tm25_lambertian.rs` and `docs/sample/lambertian_1mm_1M.TM25RAY`:
+  a flat Lambertian square with exactly known radiance, as a ground truth for
+  luminance code.
+- `docs/luminance.md`: how to compute luminance from a ray file, with noise
+  estimates and a numerical check.
 - `Ray::with_wavelength` and `Ray::with_spectrum_index`, to match the existing
   flux builders.
 - A landing page for GitHub Pages at holg.github.io/tm25ray.

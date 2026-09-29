@@ -126,6 +126,7 @@ cargo run --release --example tm25_info -- file.TM25RAY   # header, spectrum, fa
 cargo run --release --example tm25_grid -- file.TM25RAY   # the binned C/γ grid as a table
 cargo run --release --example tm25_bench -- file.TM25RAY  # timings per stage (see Performance)
 cargo run --release --example tm25_sample -- out.TM25RAY   # write a synthetic file to open
+cargo run --release --example tm25_lambertian -- out.TM25RAY # Lambertian ground truth for luminance checks
 cargo run --release --example tm25_roundtrip -- file.TM25RAY # header parses and re-writes byte for byte
 ```
 
@@ -154,10 +155,18 @@ reinterpret of `f32` columns and runs at memory speed.
 Vendor ray files may be used but not redistributed, so the repository carries a
 generated one instead: a 1 mm chip under a 1.4 mm silicone dome, Snell
 refraction at the dome surface, rim leakage, a phosphor-white spectrum and a
-per-ray wavelength. It is a simulation and the header says so.
+per-ray wavelength. It is a simulation and the header says so. Each ray starts
+where it leaves the package, on the dome or in the rim gap, as in a vendor file.
 
 - [`docs/sample/sample_white_led_25k.TM25RAY`](docs/sample/sample_white_led_25k.TM25RAY) (0.8 MB)
 - [`docs/sample/sample_white_led_100k.TM25RAY`](docs/sample/sample_white_led_100k.TM25RAY) (3.2 MB)
+
+For checking luminance code there is a ground truth: a flat 1 × 1 mm
+Lambertian square, 1 W, 1M rays, whose radiance is exactly
+318 310 W/(sr·m²) everywhere and in every direction
+([`docs/luminance.md`](docs/luminance.md)).
+
+- [`docs/sample/lambertian_1mm_1M.TM25RAY`](docs/sample/lambertian_1mm_1M.TM25RAY) (28 MB)
 
 ```bash
 cargo run --release --example tm25_sample -- out.TM25RAY 250000

@@ -286,9 +286,10 @@ let rays = keep.finish(); // flux rescaled to the file total</code></pre>
   can ship here. Instead there is a generated one, free to copy, ray-traced
   from an analytic model: a 1 mm square chip emitting Lambertian under a
   1.4 mm silicone dome, refracted at the dome surface by Snell's law, with a
-  small fraction escaping past the rim. It carries a phosphor-white spectrum
-  and a per-ray wavelength, so the spectral colouring in the viewer has
-  something to show.
+  small fraction escaping past the rim. Each ray starts where it leaves the
+  package, on the dome or in the rim gap, as in a vendor file. It carries a
+  phosphor-white spectrum and a per-ray wavelength, so the spectral colouring
+  in the viewer has something to show.
 </p>
 
 <div class="btns">
@@ -307,7 +308,7 @@ let rays = keep.finish(); // flux rescaled to the file total</code></pre>
   <a href="sample/sample_white_led_25k.TM25RAY" download>25k rays (0.8 MB)</a> or
   <a href="sample/sample_white_led_100k.TM25RAY" download>100k rays (3.2 MB)</a>
   and drop it on the page. Both describe the same source: 1.05 W radiant,
-  half intensity at 62°.
+  half intensity at 61°.
 </p>
 
 <p style="margin-top:18px">
@@ -315,6 +316,16 @@ let rays = keep.finish(); // flux rescaled to the file total</code></pre>
   the description strings. The numbers are plausible rather than a real
   product's. Regenerate it at any size with
   <code>cargo run --release --example tm25_sample -- out.TM25RAY 250000</code>.
+</p>
+
+<p>
+  For checking luminance code there is also a ground truth: a flat
+  1&nbsp;×&nbsp;1&nbsp;mm Lambertian square, 1&nbsp;W, 1M rays, whose radiance is
+  exactly 318&nbsp;310&nbsp;W/(sr·m²) at every point and in every direction.
+  <a href="sample/lambertian_1mm_1M.TM25RAY" download>Download it (28 MB)</a>,
+  and see
+  <a href="https://github.com/holg/tm25ray/blob/main/docs/luminance.md">the luminance notes</a>
+  for the method and the noise to expect.
 </p>
 
 <p>
