@@ -166,7 +166,7 @@ Lambertian square, 1 W, 1M rays, whose radiance is exactly
 318 310 W/(sr·m²) everywhere and in every direction
 ([`docs/luminance.md`](docs/luminance.md)).
 
-- [`docs/sample/lambertian_1mm_1M.TM25RAY`](docs/sample/lambertian_1mm_1M.TM25RAY) (28 MB)
+- [`docs/sample/lambertian_1mm_1M.TM25RAY`](https://holg.github.io/tm25ray/sample/lambertian_1mm_1M.TM25RAY) (28 MB)
 
 ```bash
 cargo run --release --example tm25_sample -- out.TM25RAY 250000

@@ -5,7 +5,7 @@
 > below come from a numerical check against an analytic emitter, described at
 > the end, so the method is verified even though the crate does not ship it.
 > The emitter is available as a file to test other software against:
-> [`sample/lambertian_1mm_1M.TM25RAY`](sample/lambertian_1mm_1M.TM25RAY).
+> [`sample/lambertian_1mm_1M.TM25RAY`](https://holg.github.io/tm25ray/sample/lambertian_1mm_1M.TM25RAY).
 
 ## Why ray files can answer this at all
 
@@ -198,7 +198,7 @@ argument predicts.
 
 ## Ground-truth file
 
-[`sample/lambertian_1mm_1M.TM25RAY`](sample/lambertian_1mm_1M.TM25RAY)
+[`sample/lambertian_1mm_1M.TM25RAY`](https://holg.github.io/tm25ray/sample/lambertian_1mm_1M.TM25RAY)
 (28 MB, written by `examples/tm25_lambertian.rs`) is that emitter as a TM-25
 file: a 1 × 1 mm square centred on the origin in the z = 0 plane, 1 W radiant,
 1,000,000 equal-flux rays, no spectrum. The expected radiance is
