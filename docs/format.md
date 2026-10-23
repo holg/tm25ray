@@ -8,6 +8,14 @@
 > 20M-ray file (560 MB) decodes at ~91 M rays/s, ~19 M rays/s through the full
 > far-field + reservoir pipeline (M2 Max; `examples/tm25_bench.rs`). Remaining `VERIFY` items are marked
 > in the code and listed at the end of this document.
+>
+> Update (2026-10-23): offsets, block sizes and the official field names were
+> checked against Table 4-2 of the standard. That settled the block after the
+> spectral tables (32-byte padding, fixed 512-byte column names, text size in
+> bytes), which 0.1.x had modelled as an optional trailer, and the `VERIFY`
+> list at the end shrank to two items. Two more vendor packages (ams OSRAM
+> GW CSSRMU blue and yellow, with larger spectral tables) and two Lumileds
+> files round-trip byte for byte under the corrected layout.
 
 ## Role and goal
 
@@ -51,41 +59,44 @@ All integers are little-endian, all floats are `f32` LE. Spec section numbers fo
 | 12 | 4 | f32 | 0.0 | Total luminous flux Φv in lm, 4.7.1.4. Zero here because the sample is a UV-C emitter (confirmed) |
 | 16 | 4 | f32 | 0.051 | Total radiant flux Φ in W, 4.7.1.5. Rays sum to it (confirmed) |
 | 20 | 8 | u64 | 100000 | Number of rays, 4.7.1.6. The former "unknown i32 at 24" is the high dword. Decodes 100k, 500k, 5M and 20M correctly (confirmed) |
-| 28 | 28 | ASCII, NUL-padded | `2026-05-12 13:57:44` | File creation date and time, 4.7.1.7. Nominally ISO 8601; the vendor writes `YYYY-MM-DD hh:mm:ss` (confirmed; the 28 vs 32 byte width is VERIFY, see next row) |
-| 56 | 4 | i32 | 0 | Ray start position flag, 4.7.1.8, observed 0. Indistinguishable from date padding in the samples (VERIFY) |
+| 28 | 28 | ASCII, NUL-padded | `2026-05-12 13:57:44` | File creation date and time, 4.7.1.7. Nominally ISO 8601; the vendor writes `YYYY-MM-DD hh:mm:ss` (confirmed, 28 bytes) |
+| 56 | 4 | i32 | 0 | Ray start position flag, 4.7.1.8, observed 0 (position confirmed; meaning of other values VERIFY) |
 | 60 | 4 | i32 | 3 | Spectral data identifier, 4.7.1.9, range 0..=4: 0 none, 1 single wavelength, 2 per-ray wavelength, 3 one spectral table shared by all rays, 4 per-ray index into several tables (confirmed) |
 | 64 | 4 | f32 | NaN (`0x7FC00001`) | Single wavelength in nm, 4.7.1.10; NaN when unused (confirmed) |
 | 68 | 4 | f32 | 220.0 | Minimum wavelength in nm, 4.7.1.11, set for identifiers 2..=4 (confirmed) |
 | 72 | 4 | f32 | 320.0 | Maximum wavelength in nm, 4.7.1.12 (confirmed) |
 | 76 | 4 | i32 | 1 | Number of spectral tables, 4.7.1.13 (confirmed) |
 | 80 | 4 | i32 | 0 | Number of additional per-ray data items, 4.7.1.14 (confirmed) |
-| 84 | 4 | i32 | 0 | Size of the additional text block (VERIFY: position inferred from the standard's header field list) |
+| 84 | 4 | i32 | 0 | Size of the additional text block 4.7.6, in bytes (confirmed) |
 | 88 | 168 | zeros | | Reserved for future use, header block ends at 256 |
 | 256 | 32 | 8 × i32 | 1, 1, 1, 0, 0, 0, 0, 0 | Known data flags block, 4.7.2: position, direction, radiant flux, wavelength, luminous flux, Stokes, tristimulus, spectrum index. Each 0 or 1 (confirmed) |
 | 288 | 9 × 4000 | UTF-32LE, NUL-padded | see below | Nine description strings, 4.7.3.1 to 4.7.3.9, 1000 code points each (confirmed) |
 | 36288 | 4 | i32 | 51 | First spectral table: point count N (confirmed) |
 | 36292 | N × 8 | (f32 λ, f32 value) | 220 nm ... 320 nm, step 2 | Interleaved pairs, wavelength first, values in percent of peak (peak = 100). Identical to the `spectrum.txt` shipped in the package, which is the same table peak-normalised to 1.0 (confirmed by data) |
-| 36292 + 8N | 4 | i32 | 0 | Count of column names for additional ray items, 4.7.5 (0 here), followed by the additional text block, 4.7.6. **Optional in practice — see "Vendor differences" below.** With `n_addtl_items > 0` UTF-32 names sit here and shift the ray block (VERIFY exact encoding) |
+| 36292 + 8N | 0 – 28 | zeros | 4 bytes here | Padding: the spectral block (everything from 36288) is zero padded to a multiple of 32 bytes; 412 bytes of table need 4. Then `n_addtl_items` column names, 4.7.5, each a fixed 512-byte UTF-32LE string, NUL padded, with no count and no length prefix; then the additional text block, 4.7.6, of the size given at offset 84 (confirmed against the reference implementation and both vendors) |
 | 36704 | n_rays × 28 | 7 × f32 | | Ray records (confirmed) |
 
 The offsets above are from an ams OSRAM file. The fixed part up to 36288 is the
-same everywhere seen so far; what follows it is not.
+same everywhere; what follows depends on the spectral tables.
 
 ### Vendor differences (confirmed on real files)
 
 Two producers, two shapes. Both are version 2013 and both store ray data
 little-endian.
 
-**The 4.7.5/4.7.6 trailer is optional.** ams OSRAM writes the column-name count
-(and, with names, 416 bytes of them), so the ray block starts at 36704.
-Lumileds LUXEON files omit the block entirely and the ray block starts at
-36288, immediately after the fixed header. Nothing in the header announces
-which form is used, and a file that writes an *empty* trailer is
-byte-identical, for those four bytes, to one whose first ray starts at x = 0.0.
-The file size resolves it: only one of the two candidate offsets leaves room
-for exactly `n_rays × record_size` bytes. A reader that has only a prefix (a
-stream, an HTTP range request) cannot tell and should prefer the trailer, which
-is what a file with no trailer and no rays would also look like.
+**The ray block starts at different offsets, and the header does say where.**
+ams OSRAM files start their rays at 36704, Lumileds files at 36288. Versions
+0.1.x of this crate explained the difference as an optional "column-name
+count" trailer that one vendor wrote and the other omitted. The real rule is
+simpler and deterministic: the spectral-table block is zero padded to a
+multiple of 32 bytes. The ams OSRAM UV-C table is 412 bytes and gets 4 bytes
+of padding, which looked exactly like a count of zero; the Lumileds files
+have no table, so nothing to pad. Two more ams OSRAM packages with larger
+tables (ray blocks at 37184 and 37664) confirm the rule. Column names, when
+`n_addtl_items > 0`, follow as fixed 512-byte strings, and then the
+additional text block. A file with additional columns (Zemax exports carry
+phase and E-field) could not be read by 0.1.x at all, and the files 0.1.x
+wrote are 4 to 20 bytes off for a reader that follows the standard.
 
 **The "unknown value" sentinel may be byte-swapped.** Fields that are not known
 (a radiometric file's luminous flux, the wavelength bounds of a file without a
@@ -111,28 +122,28 @@ Consistency rules the reference implementation enforces, worth mirroring in vali
 - Flux fields are zero, positive, or NaN when unknown.
 - Every spectral table wavelength is > 0 and every weight is ≥ 0.
 
-Important: the ray block start depends on N, on the number of spectral tables, on the column-name block and on the additional text block.
-For the sample it is `36288 + 4 + 8*51 + 4 = 36704`.
+Important: the ray block start depends on the spectral tables, their padding, the column names and the additional text block.
+For the sample it is `36288 + pad32(4 + 8*51) + 512 * n_addtl_items + text_size = 36288 + 416 + 0 + 0 = 36704`.
 Do not hardcode 36704.
 Sanity check: `ray_start + n_rays * record_size == file_len` must hold (all four sample files pass with record size 28), otherwise return a descriptive error.
-For identifier 0, 1 or 2 no spectral table is present and the block is absent; for identifier 4 there are `n_spectra` tables. The reference implementation carries an explicit index per table in memory; whether the 2013 file stores one is not visible in a single-table sample (VERIFY).
+For identifier 0, 1 or 2 no spectral table is present and the block is absent; for identifier 4 there are `n_spectra` tables, each a point count followed by its pairs. No per-table index is stored; the reference implementation numbers them 1..n in memory (confirmed).
 
 ### Text fields (sample content)
 
 | Index | Offset | Sample content | Meaning (4.7.3.x) |
 |---|---|---|---|
-| 0 | 288 | `SU CULCP1.VC` | Name of the light source |
-| 1 | 4288 | `ams-OSRAM AG` | Manufacturer |
-| 2 | 8288 | `BZ` | Model / type code (VERIFY exact spec name) |
-| 3 | 12288 | `ams-OSRAM AG` | Measurement laboratory or simulation author |
+| 0 | 288 | `SU CULCP1.VC` | Name of light source |
+| 1 | 4288 | `ams-OSRAM AG` | Manufacturer of light source |
+| 2 | 8288 | `BZ` | Creator of optical light source model (a person's initials here, not a type code) |
+| 3 | 12288 | `ams-OSRAM AG` | Creator of the ray file |
 | 4 | 16288 | `Measurement Equipment / Simulation Software Not Available` | Measurement equipment / simulation software |
-| 5 | 20288 | `Camera Information Not Available` | Camera / detector information |
-| 6 | 24288 | `150mA` | Operating condition (drive current) |
+| 5 | 20288 | `Camera Information Not Available` | Camera information |
+| 6 | 24288 | `150mA` | Light source operation information |
 | 7 | 28288 | `Additional Information Not Available` | Additional information |
-| 8 | 32288 | `See Information In PDF file` | Data reference (reference implementation: `data_reference_4_7_3_9`) |
+| 8 | 32288 | `See Information In PDF file` | Data reference to light source geometry |
 
-Decode each field as UTF-32LE, stop at the first NUL, and reject invalid code points with an error instead of panicking.
-Expose them as named fields plus a raw `[String; 9]` so unknown meanings are not lost.
+The names are the official ones (confirmed). Decode each field as UTF-32LE, stop at the first NUL, and reject invalid code points with an error instead of panicking.
+Expose them as named fields plus a raw `[String; 9]`.
 
 ### Ray record
 
@@ -148,10 +159,10 @@ A record is `x y z kx ky kz` followed by the optional columns enabled by the kno
 | S1, S2, S3 | Stokes flag | relative to the flux |
 | polarisation ellipse x, y, z | Stokes flag | unit vector |
 | tristimulus X, Z | tristimulus flag | |
-| spectrum index | spectrum-index flag (identifier 4) | 1-based table index stored as f32 |
+| spectrum index | spectrum-index flag (identifier 4) | 1-based table index, an i32 (confirmed). The C++ reference reads and writes it as f32; the two bit patterns cannot collide, so the reader accepts both |
 | additional items | `n_addtl_items` | named by the column-name block |
 
-All columns are `f32`, row-major, so `record_size = 4 × column_count`.
+All columns are 4 bytes wide (`f32` except the spectrum index), row-major, so `record_size = 4 × column_count`.
 The sample enables only radiant flux, hence 28 bytes.
 Files written by Zemax OpticStudio may add phase and E-field columns as additional items, so a reader must compute the record size from the flags rather than assume 28.
 
@@ -227,12 +238,10 @@ Float ray data compresses poorly, so do not rely on zip or GLDF containers to sh
 
 ## Open questions to verify against the official IES TM-25 document
 
-- Creation method enumeration (0 = simulation in the reference code; meaning of -1 and of measured values).
-- Whether the date field is 28 bytes followed by the start-position flag, or 32 bytes with the flag elsewhere.
-- Exact position of the additional-text-block size in the header (assumed offset 84) and the encoding of the column-name and additional-text blocks after the spectral tables.
-- Whether a spectral table stores an explicit index before its point count when several tables are present (identifier 4).
-- Official names of the nine text fields (order is confirmed, wording is not).
-- What TM-25-20 changed on disk.
+- Creation method enumeration (the reference code expects 0 or 1 and only warns otherwise; ams OSRAM writes -1).
+- Meaning of a non-zero ray start position flag (4.7.1.8).
+
+Settled in October 2026: the date field is 28 bytes with the start-position flag at 56; the text-block size sits at 84 and counts bytes; the spectral block is padded to 32 bytes and stores no per-table index; column names are fixed 512-byte strings; the nine text fields carry the names listed above; the spectrum index is an integer. TM-25-20 added the polarisation-ellipse axis columns (4.8.1.13 to 4.8.1.15), which this layout already carries; files otherwise stay 2013-compatible.
 
 Mark every assumption in code with a `// VERIFY:` comment so they are easy to find once the spec is available.
 

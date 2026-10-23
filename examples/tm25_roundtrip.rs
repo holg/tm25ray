@@ -14,11 +14,11 @@ fn main() {
     let h = &file.header;
     println!("{path}");
     println!(
-        "  {} rays, record {} B, ray block at {}, name block {}",
+        "  {} rays, record {} B, ray block at {}, {} additional column(s)",
         h.n_rays,
         h.record_size(),
         h.ray_start,
-        h.has_name_block
+        h.n_additional_items
     );
 
     // Header only: write with no rays (the writer fills in n_rays from the

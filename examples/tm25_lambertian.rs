@@ -10,18 +10,31 @@
 //! should return that value, within Monte Carlo noise, at every angle; see
 //! `docs/luminance.md` for the method and the noise to expect.
 //!
-//! Start points are uniform on the square, directions cosine-weighted, and
-//! every ray carries the same flux. There is no spectrum, so the result is
-//! radiance, not luminance.
+//! Start points are uniform on the square, directions cosine-weighted (uniform
+//! in projected solid angle), and every ray carries the same flux. That is the
+//! shape Julius Muschaweck, the initiator of TM-25, recommends for a ground
+//! truth: equal-power rays keep the Monte-Carlo noise even across angles. Each
+//! ray also carries a wavelength drawn uniformly from 360 to 830 nm, so the
+//! file has a flat spectrum: the radiance is 318 310 W/(sr·m²), the spectral
+//! radiance 677 W/(sr·m²·nm), and a luminance estimator that applies V(λ)
+//! should find 318 310 × 683 × V̄ ≈ 49.5 Mcd/m², where V̄ ≈ 0.227 is the mean
+//! of V(λ) over 360–830 nm. The wavelength costs 14 % file size.
+//!
+//! The random numbers come from the crate's xorshift generator; a
+//! low-discrepancy (Sobol) sequence would give less noise per ray but needs
+//! care in several dimensions, so this stays with plain pseudo-random draws.
 
 use std::f64::consts::PI;
 
-use tm25ray::{write_tm25, Header, KnownDataFlags, Ray, Rng64};
+use tm25ray::{write_tm25, Header, KnownDataFlags, Ray, Rng64, SpectralId};
 
 /// Half-width of the emitting square, mm.
 const HALF: f64 = 0.5;
 /// Radiant flux of the whole file, W.
 const TOTAL_FLUX_W: f32 = 1.0;
+/// Wavelength range, nm; the spectrum is flat across it.
+const LAMBDA_MIN: f64 = 360.0;
+const LAMBDA_MAX: f64 = 830.0;
 
 fn main() {
     let mut args = std::env::args().skip(1);
@@ -44,6 +57,7 @@ fn main() {
             let u = rng.next_f64();
             let phi = 2.0 * PI * rng.next_f64();
             let (sin_g, cos_g) = (u.sqrt(), (1.0 - u).sqrt());
+            let lambda = LAMBDA_MIN + (LAMBDA_MAX - LAMBDA_MIN) * rng.next_f64();
             Ray::new(
                 [x as f32, y as f32, 0.0],
                 [
@@ -53,29 +67,42 @@ fn main() {
                 ],
             )
             .with_radiant_flux(flux_each)
+            .with_wavelength(lambda as f32)
         })
         .collect();
 
     let area_m2 = (2.0 * HALF) * (2.0 * HALF) * 1e-6;
     let expected = TOTAL_FLUX_W as f64 / (PI * area_m2);
+    let expected_spectral = expected / (LAMBDA_MAX - LAMBDA_MIN);
 
-    let mut h = Header::new(KnownDataFlags::radiometric());
+    let mut flags = KnownDataFlags::radiometric();
+    flags.wavelength = true;
+    let mut h = Header::new(flags);
     // 0 = simulation, which is what this is.
     h.creation_method = 0;
     h.radiant_flux_w = TOTAL_FLUX_W;
-    h.date_time = "2026-09-29 12:00:00".into();
+    h.date_time = "2026-10-24 12:00:00".into();
+    h.spectral_id = SpectralId::PerRayWavelength;
+    h.min_wavelength_nm = Some(LAMBDA_MIN as f32);
+    h.max_wavelength_nm = Some(LAMBDA_MAX as f32);
+    // 4.7.3: name, manufacturer, creator of the optical model, creator of the
+    // ray file, equipment / software, camera, operation, additional, geometry.
     h.text.raw[0] = "Lambertian square, 1 x 1 mm, ground truth for luminance".into();
-    h.text.raw[1] = "tm25ray".into();
-    h.text.raw[2] = "LAMBERTIAN-1MM".into();
-    h.text.raw[3] = "none: this file is generated, not measured".into();
-    h.text.raw[4] = "examples/tm25_lambertian.rs".into();
-    h.text.raw[6] = "1 W radiant".into();
+    h.text.raw[1] = "none: analytic emitter, not a product".into();
+    h.text.raw[2] = "tm25ray (analytic model)".into();
+    h.text.raw[3] = "tm25ray examples/tm25_lambertian.rs".into();
+    h.text.raw[4] = "tm25ray writer, generated, not measured".into();
+    h.text.raw[6] = "1 W radiant, flat spectrum 360-830 nm".into();
     h.text.raw[7] = format!(
         "Free to copy and redistribute. Flat Lambertian emitter in z = 0, \
-         uniform start points, cosine-weighted directions. Expected radiance \
-         {expected:.0} W/(sr*m^2) at every point and in every direction."
+         uniform start points, cosine-weighted directions, equal flux per ray, \
+         wavelength uniform in [{LAMBDA_MIN:.0}, {LAMBDA_MAX:.0}] nm. Expected \
+         radiance {expected:.0} W/(sr*m^2) and spectral radiance \
+         {expected_spectral:.1} W/(sr*m^2*nm) at every point and in every direction. \
+         See https://github.com/holg/tm25ray/blob/main/docs/luminance.md"
     );
-    h.text.raw[8] = "https://github.com/holg/tm25ray/blob/main/docs/luminance.md".into();
+    h.text.raw[8] =
+        "emitting square in the z = 0 plane, centred on the origin, emitting into +z".into();
 
     let file = match std::fs::File::create(&path) {
         Ok(f) => f,
@@ -90,7 +117,8 @@ fn main() {
     }
     let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
     println!(
-        "wrote {path}: {n} rays, {:.1} MB, {TOTAL_FLUX_W} W, expected radiance {expected:.0} W/(sr*m^2)",
+        "wrote {path}: {n} rays, {:.1} MB, {TOTAL_FLUX_W} W, expected radiance {expected:.0} W/(sr*m^2), \
+         spectral radiance {expected_spectral:.1} W/(sr*m^2*nm)",
         size as f64 / 1e6
     );
 }

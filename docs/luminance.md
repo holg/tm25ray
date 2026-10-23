@@ -199,14 +199,18 @@ argument predicts.
 ## Ground-truth file
 
 [`sample/lambertian_1mm_1M.TM25RAY`](https://holg.github.io/tm25ray/sample/lambertian_1mm_1M.TM25RAY)
-(28 MB, written by `examples/tm25_lambertian.rs`) is that emitter as a TM-25
+(32 MB, written by `examples/tm25_lambertian.rs`) is that emitter as a TM-25
 file: a 1 × 1 mm square centred on the origin in the z = 0 plane, 1 W radiant,
-1,000,000 equal-flux rays, no spectrum. The expected radiance is
+1,000,000 equal-flux rays, directions uniform in projected solid angle, each
+ray with a wavelength drawn uniformly from 360 to 830 nm. The spectrum is
+therefore flat: spectral radiance 677 W/(sr·m²·nm), and a luminance estimator
+that weights rays by V(λ) should find 318,310 × 683 × V̄ ≈ 49.5 Mcd/m², where
+V̄ ≈ 0.227 is the mean of V(λ) over 360–830 nm (∫V dλ ≈ 106.9 nm). The expected radiance is
 318,310 W/(sr·m²) at every point on the square and in every direction of the
 upper hemisphere; the far field is `I(γ) = (1/π) W/sr · cos γ`, half intensity
 at 60°. Run through the estimator above, with a 5° cone and 0.05 mm pixels, the
-file itself gives 1.004, 0.982 and 1.004 times the expected value at γ = 0°,
-45° and 70°, with 23 to 24 % pixel noise, as the formula predicts.
+file itself gives 0.998, 0.982 and 1.006 times the expected value at γ = 0°,
+45° and 70°, with 22 to 24 % pixel noise, as the formula predicts.
 
 The white LED samples next to it are not a ground truth, but they are valid
 input: each ray starts where it leaves the package, on the dome or in the rim

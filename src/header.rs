@@ -2,9 +2,9 @@
 //! spectral / column-name / additional-text blocks.
 //!
 //! Field names carry the spec section numbers used by the reference
-//! implementation (JuliusMuschaweck/TM25RaySetTools). Everything marked
-//! `VERIFY` was inferred from real files and the reference code, not from
-//! the paywalled standard text.
+//! implementation (JuliusMuschaweck/TM25RaySetTools). Offsets, sizes and
+//! the official field names were checked against Table 4-2 of the standard
+//! in October 2026; what is still marked `VERIFY` was not settled by it.
 
 use crate::error::{Result, Tm25Error};
 
@@ -24,10 +24,21 @@ pub const TEXT_FIELD_CHARS: usize = 1000;
 pub const TEXT_FIELDS: usize = 9;
 /// Offset of the first variable block (spectral tables, 4.7.4).
 pub const FIXED_HEADER_SIZE: usize = TEXT_OFFSET + TEXT_FIELDS * TEXT_FIELD_CHARS * 4; // 36 288
-/// Width of the creation date/time field in bytes. VERIFY: 28 is inferred
-/// from the ray-start-position field following at 56; the vendor writes 19
-/// ASCII characters and zero padding, so 28 vs 32 is invisible in samples.
+/// Width of the creation date/time field (4.7.1.7) in bytes.
 pub const DATE_TIME_LEN: usize = 28;
+/// Each additional-column name (4.7.5) is a fixed 512-byte UTF-32LE string.
+pub const COLUMN_NAME_BYTES: usize = 512;
+/// Code points per column name.
+pub const COLUMN_NAME_CHARS: usize = COLUMN_NAME_BYTES / 4;
+/// The spectral-table block (4.7.4) and the additional text block (4.7.6)
+/// are padded with zeros to a multiple of this many bytes.
+pub const BLOCK_ALIGN: usize = 32;
+
+/// Zero bytes that follow a block of `bytes` to reach the next multiple of
+/// [`BLOCK_ALIGN`].
+pub(crate) fn spectral_padding(bytes: usize) -> usize {
+    (BLOCK_ALIGN - bytes % BLOCK_ALIGN) % BLOCK_ALIGN
+}
 
 /// Spectral data identifier (4.7.1.9).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -142,8 +153,8 @@ pub enum FluxKind {
     Both,
 }
 
-/// The nine description strings (4.7.3.1 – 4.7.3.9). Order is confirmed
-/// from real files; the official wording of each name is VERIFY.
+/// The nine description strings (4.7.3.1 – 4.7.3.9), named as in Table 4-2
+/// of the standard.
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct TextFields {
     pub raw: [String; TEXT_FIELDS],
@@ -154,27 +165,30 @@ impl TextFields {
     pub fn name(&self) -> &str {
         &self.raw[0]
     }
-    /// Manufacturer (4.7.3.2).
+    /// Manufacturer of the light source (4.7.3.2).
     pub fn manufacturer(&self) -> &str {
         &self.raw[1]
     }
-    /// Model / type code (4.7.3.3, VERIFY).
-    pub fn model(&self) -> &str {
+    /// Creator of the optical light source model (4.7.3.3). A person or
+    /// company, not a type code: ams OSRAM files carry initials here.
+    pub fn model_creator(&self) -> &str {
         &self.raw[2]
     }
-    /// Measurement laboratory or simulation author (4.7.3.4).
-    pub fn laboratory(&self) -> &str {
+    /// Creator of the ray file (4.7.3.4): the measuring laboratory or the
+    /// simulation author.
+    pub fn rayfile_creator(&self) -> &str {
         &self.raw[3]
     }
     /// Measurement equipment / simulation software (4.7.3.5).
     pub fn equipment(&self) -> &str {
         &self.raw[4]
     }
-    /// Camera / detector information (4.7.3.6).
+    /// Camera information (4.7.3.6).
     pub fn camera(&self) -> &str {
         &self.raw[5]
     }
-    /// Operating condition, e.g. drive current (4.7.3.7).
+    /// Light source operation information, e.g. drive current and
+    /// temperature (4.7.3.7).
     pub fn operating_condition(&self) -> &str {
         &self.raw[6]
     }
@@ -182,7 +196,8 @@ impl TextFields {
     pub fn additional_info(&self) -> &str {
         &self.raw[7]
     }
-    /// Data reference (4.7.3.9).
+    /// Data reference to the light source geometry (4.7.3.9), e.g. where the
+    /// ray file origin sits relative to the package.
     pub fn data_reference(&self) -> &str {
         &self.raw[8]
     }
@@ -273,8 +288,10 @@ pub enum Column {
     Additional(usize),
 }
 
-/// Column order implied by the known-data flags. VERIFY against the
-/// standard: this follows the item order of the reference implementation.
+/// Column order implied by the known-data flags, as in Table 4-2 of the
+/// standard (4.8.1): position, direction, radiant flux / S0, wavelength,
+/// luminous flux / Y, S1 S2 S3, polarisation ellipse axis, X and Z
+/// tristimulus, spectrum index, user-defined items.
 pub fn columns_from_flags(flags: &KnownDataFlags, n_additional: usize) -> Vec<Column> {
     let mut c = vec![
         Column::X,
@@ -326,14 +343,9 @@ pub struct ParseOptions {
     pub strict_flags: bool,
     /// Total size of the file in bytes, when the caller knows it.
     ///
-    /// The 4.7.5/4.7.6 trailer (column names, additional text) is optional in
-    /// practice: ams OSRAM writes it, Lumileds omits it and starts the ray
-    /// block right after the fixed header. Nothing in the header says which,
-    /// and an *empty* trailer (`count = 0`) is indistinguishable from a first
-    /// ray whose x is 0.0. With the total size the question is arithmetic —
-    /// only one of the two candidate offsets leaves room for exactly
-    /// `n_rays × record_size` bytes — so pass it whenever you can.
-    /// `Tm25File::parse` and the memory-mapped reader do this for you.
+    /// Not needed to locate the ray block any more (the layout is fixed by
+    /// the header), kept so `Tm25File::parse` and the memory-mapped reader
+    /// can check `ray_start + n_rays × record_size` against it.
     pub total_size: Option<u64>,
 }
 
@@ -350,8 +362,8 @@ impl Default for ParseOptions {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Header {
     pub version: i32,
-    /// 4.7.1.3. Reference code: 0 = simulation. Vendor files show −1
-    /// (presumably "not specified"). Enumeration VERIFY.
+    /// 4.7.1.3. The reference code expects 0 or 1 (0 = simulation) and only
+    /// warns otherwise; ams OSRAM files carry −1. Enumeration VERIFY.
     pub creation_method: i32,
     /// 4.7.1.4, lm. Zero when unknown (a NaN in the file is normalised to 0).
     pub luminous_flux_lm: f32,
@@ -361,7 +373,7 @@ pub struct Header {
     pub n_rays: u64,
     /// 4.7.1.7, trimmed of NUL padding.
     pub date_time: String,
-    /// 4.7.1.8, observed 0 in all samples (VERIFY meaning).
+    /// 4.7.1.8, ray start position flag; observed 0 in all samples (VERIFY meaning).
     pub start_position: i32,
     /// 4.7.1.9.
     pub spectral_id: SpectralId,
@@ -373,14 +385,15 @@ pub struct Header {
     pub max_wavelength_nm: Option<f32>,
     /// 4.7.1.14: user-defined per-ray columns.
     pub n_additional_items: usize,
-    /// Size of the additional text block. VERIFY: assumed at offset 84 and
-    /// counted in UTF-32 code points.
+    /// 4.7.1.15: size of the additional text block (4.7.6) in **bytes**, as
+    /// stored at offset 84. The writer recomputes it from `additional_text`,
+    /// padded to a multiple of 32.
     pub additional_text_size: i32,
     pub flags: KnownDataFlags,
     pub text: TextFields,
     /// 4.7.4, `n_spectra` tables (4.7.1.13).
     pub spectra: Vec<SpectralTable>,
-    /// 4.7.5, names of the additional columns.
+    /// 4.7.5, names of the additional columns, one per `n_additional_items`.
     pub column_names: Vec<String>,
     /// 4.7.6.
     pub additional_text: String,
@@ -392,12 +405,6 @@ pub struct Header {
     /// (ams OSRAM writes `0x7FC00001`, Lumileds `0x7F800001`, the Rust
     /// default is `0x7FC00000`). Only needed so a round trip is byte exact.
     pub nan_pattern: u32,
-    /// Whether the file carries the 4.7.5/4.7.6 trailer at all. Lumileds
-    /// LUXEON files go straight from the fixed header to the ray data, ams
-    /// OSRAM files write the count (and a zero-length text). Preserved so a
-    /// round trip reproduces the source byte for byte; [`Header::new`] sets
-    /// it to `true`.
-    pub has_name_block: bool,
     /// Column layout of one ray record, derived from the flags.
     pub columns: Vec<Column>,
     /// Byte offset of the first ray record.
@@ -467,7 +474,6 @@ impl Header {
             spectra: Vec::new(),
             column_names: Vec::new(),
             additional_text: String::new(),
-            has_name_block: true,
             raw_flux_bits: None,
             nan_pattern: f32::NAN.to_bits(),
             columns: columns_from_flags(&flags, 0),
@@ -553,8 +559,8 @@ impl Header {
         r.seek(FIXED_HEADER_SIZE)?;
         let mut spectra = Vec::with_capacity(n_spectra as usize);
         for _ in 0..n_spectra {
-            // VERIFY: no explicit table index is stored before the point
-            // count in single-table files; multi-table files may differ.
+            // Each table is its point count followed by the pairs; no
+            // explicit table index is stored (Table 4-2).
             let n = r.i32()?;
             if !(0..=1_000_000).contains(&n) {
                 return Err(Tm25Error::InvalidHeader(format!(
@@ -571,88 +577,30 @@ impl Header {
             }
             spectra.push(t);
         }
-        // Column names (4.7.5): count, then length-prefixed UTF-32 strings.
-        //
-        // Not every writer emits this block. Lumileds LUXEON files jump
-        // straight from the fixed header to the ray data, so the first i32
-        // there is ray payload, not a count (it decoded as -1 089 800 634).
-        // ams OSRAM files do emit it. Nothing in the header says which, so
-        // decide structurally: accept the block only when the count and the
-        // string lengths that follow are self-consistent. Ray floats fail
-        // that test essentially always, because their bit patterns are huge
-        // or negative integers.
-        let names_at = r.pos;
-        // A *file* that ends exactly here has no trailer and no rays. Only
-        // `total_size` can say that; a slice ending here may just be the
-        // prefix the streaming reader has read so far, and that must report
-        // `Truncated` so the caller grows the buffer.
-        let at_eof = opts.total_size == Some(names_at as u64);
-        let mut column_names = Vec::new();
-        // Try to read the trailer. `Ok(false)` means the bytes are not a
-        // trailer, so they must already be ray data. A `Truncated` error is
-        // different: the caller only handed us a prefix, and it has to grow
-        // the buffer and try again — swallowing it here would silently mistake
-        // a real trailer for ray data whenever the header straddles the end of
-        // the buffer (the streaming reader always does on the first attempt).
-        let mut parsed_trailer = || -> Result<bool> {
-            let n = match r.i32() {
-                Ok(n) => n,
-                Err(e @ Tm25Error::Truncated { .. }) => return Err(e),
-                Err(_) => return Ok(false),
-            };
-            if !(0..=1_000).contains(&n) {
-                return Ok(false);
-            }
-            for _ in 0..n {
-                let len = match r.i32() {
-                    Ok(v) => v,
-                    Err(e @ Tm25Error::Truncated { .. }) => return Err(e),
-                    Err(_) => return Ok(false),
-                };
-                if !(0..=10_000).contains(&len) {
-                    return Ok(false);
-                }
-                match r.utf32_exact(len as usize, "column name") {
-                    Ok(name) => column_names.push(name),
-                    Err(e @ Tm25Error::Truncated { .. }) => return Err(e),
-                    Err(_) => return Ok(false),
-                }
-            }
-            Ok(true)
-        };
-        // With no size hint an *empty* trailer is ambiguous: four zero bytes
-        // could be `count = 0` or the x of a first ray at the origin. Prefer
-        // the trailer, which is what this crate and ams OSRAM write; callers
-        // that know the file size (`ParseOptions::total_size`, set for you by
-        // `Tm25File::parse` and the mmap reader) get the exact answer below.
-        let mut has_name_block = if at_eof { false } else { parsed_trailer()? };
-        let after_names = r.pos;
-        if !has_name_block {
-            column_names.clear();
-            r.seek(names_at)?;
-        } else if let Some(total) = opts.total_size {
-            // A trailer that parses may still be the first bytes of the ray
-            // block (an empty trailer and a ray starting with 0.0 look the
-            // same). The file size decides: the ray block must end exactly at
-            // the end of the file.
-            let record = (columns_from_flags(&flags, n_additional_items as usize).len() * 4) as u64;
-            let block = n_rays.saturating_mul(record);
-            let text_bytes = additional_text_size as u64 * 4;
-            let with_trailer = after_names as u64 + text_bytes + block == total;
-            let without = names_at as u64 + block == total;
-            if without && !with_trailer {
-                has_name_block = false;
-                column_names.clear();
-                r.seek(names_at)?;
-            }
+        // The spectral-table block is padded with zeros to a multiple of
+        // 32 bytes. Table 4-2 of the standard only says "variable"; the
+        // reference implementation pads on read and write, and the vendor
+        // files agree: the ams OSRAM 51-point table (412 bytes) is followed
+        // by 4 zero bytes, a Lumileds file with no table by none. Versions
+        // up to 0.1.1 of this crate read those 4 bytes as an optional
+        // "column-name count", which happened to fit both vendors.
+        let spectral_bytes = r.pos - FIXED_HEADER_SIZE;
+        r.take(spectral_padding(spectral_bytes))?;
+        // Column names (4.7.5): one fixed 512-byte UTF-32LE string per
+        // additional item, NUL padded. No count and no per-name length.
+        let mut column_names = Vec::with_capacity(n_additional_items as usize);
+        for _ in 0..n_additional_items {
+            column_names.push(r.utf32_fixed(COLUMN_NAME_CHARS, "column name")?);
         }
-        // Additional text (4.7.6). VERIFY: size assumed in code points. Only
-        // present when the header announced a size and the name block was.
-        let additional_text = if has_name_block && additional_text_size > 0 {
-            r.utf32_exact(additional_text_size as usize, "additional text")?
-        } else {
-            String::new()
-        };
+        // Additional text (4.7.6): `additional_text_size` bytes of UTF-32LE.
+        // The reference requires a multiple of 32; any multiple of 4 is read.
+        if additional_text_size % 4 != 0 {
+            return Err(Tm25Error::InvalidHeader(format!(
+                "additional text size {additional_text_size} is not a multiple of 4"
+            )));
+        }
+        let additional_text =
+            r.utf32_exact(additional_text_size as usize / 4, "additional text")?;
 
         let ray_start = r.pos;
         let columns = columns_from_flags(&flags, n_additional_items as usize);
@@ -676,7 +624,6 @@ impl Header {
             spectra,
             column_names,
             additional_text,
-            has_name_block,
             raw_flux_bits,
             nan_pattern,
             columns,
@@ -753,8 +700,8 @@ impl Header {
 pub(crate) const TEXT_FIELD_NAMES: [&str; TEXT_FIELDS] = [
     "name",
     "manufacturer",
-    "model",
-    "laboratory",
+    "model creator",
+    "ray file creator",
     "equipment",
     "camera",
     "operating condition",

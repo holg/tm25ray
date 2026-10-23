@@ -164,13 +164,15 @@ footer {
 
 <div class="callout">
   <p>
-    <strong>Two vendors, two interpretations.</strong> The optional column-name
-    trailer is written by ams OSRAM and omitted by Lumileds, so the ray block
-    starts at a different offset with nothing in the header to say which.
-    Lumileds also writes the “value unknown” sentinel with its bytes reversed,
-    which read little-endian is not a NaN but the denormal 2.36 × 10⁻³⁸ — small
-    enough to pass for a real measurement. Both are handled, and the differences
-    are written up in
+    <strong>Two vendors, two shapes.</strong> ams OSRAM files start the ray
+    block at 36 704, Lumileds files at 36 288: the spectral-table block is
+    padded to a multiple of 32 bytes, and only one of them has a table. An
+    earlier version of this crate mistook that padding for an optional
+    trailer. Lumileds also writes the “value unknown” sentinel with its bytes
+    reversed, which read little-endian is not a NaN but the denormal
+    2.36 × 10⁻³⁸ — small enough to pass for a real measurement. Both are
+    handled, the layout was checked against the standard’s own table, and the
+    details are written up in
     <a href="https://github.com/holg/tm25ray/blob/main/docs/format.md">the format notes</a>.
   </p>
 </div>
@@ -320,9 +322,10 @@ let rays = keep.finish(); // flux rescaled to the file total</code></pre>
 
 <p>
   For checking luminance code there is also a ground truth: a flat
-  1&nbsp;×&nbsp;1&nbsp;mm Lambertian square, 1&nbsp;W, 1M rays, whose radiance is
-  exactly 318&nbsp;310&nbsp;W/(sr·m²) at every point and in every direction.
-  <a href="sample/lambertian_1mm_1M.TM25RAY" download>Download it (28 MB)</a>,
+  1&nbsp;×&nbsp;1&nbsp;mm Lambertian square, 1&nbsp;W, 1M equal-flux rays with a
+  flat 360–830&nbsp;nm spectrum, whose radiance is exactly
+  318&nbsp;310&nbsp;W/(sr·m²) at every point and in every direction.
+  <a href="sample/lambertian_1mm_1M.TM25RAY" download>Download it (32 MB)</a>,
   and see
   <a href="https://github.com/holg/tm25ray/blob/main/docs/luminance.md">the luminance notes</a>
   for the method and the noise to expect.

@@ -41,11 +41,11 @@ never uploaded. More at **[holg.github.io/tm25ray](https://holg.github.io/tm25ra
   flags: radiant / luminous flux, per-ray wavelength, Stokes and polarisation
   ellipse, tristimulus, spectrum index, user-defined items. Not just the
   28-byte case.
-- **Real vendor files, not just one** — ams OSRAM and Lumileds disagree about
-  whether the optional column-name trailer exists and about the byte order of
-  the "unknown value" sentinel. Both are handled, and a parse/write round trip
-  reproduces either byte for byte. See
-  [Vendor differences](docs/format.md#vendor-differences-confirmed-on-real-files).
+- **Real vendor files, not just one** — three ams OSRAM packages and two
+  Lumileds files round-trip byte for byte. They differ in record layout, in
+  the padding after the spectral tables and in the byte order of the "unknown
+  value" sentinel; the layout was checked against the standard's own table.
+  See [Vendor differences](docs/format.md#vendor-differences-confirmed-on-real-files).
 - **Writer** — `write_tm25(...)` produces files that round-trip byte-for-byte
   on the header; use it to export subsets or synthetic sources.
 - **Flux-preserving subsampling** — `subsample` (Floyd) and a streaming
@@ -162,11 +162,11 @@ where it leaves the package, on the dome or in the rim gap, as in a vendor file.
 - [`docs/sample/sample_white_led_100k.TM25RAY`](docs/sample/sample_white_led_100k.TM25RAY) (3.2 MB)
 
 For checking luminance code there is a ground truth: a flat 1 × 1 mm
-Lambertian square, 1 W, 1M rays, whose radiance is exactly
-318 310 W/(sr·m²) everywhere and in every direction
+Lambertian square, 1 W, 1M equal-flux rays with a flat 360–830 nm spectrum,
+whose radiance is exactly 318 310 W/(sr·m²) everywhere and in every direction
 ([`docs/luminance.md`](docs/luminance.md)).
 
-- [`docs/sample/lambertian_1mm_1M.TM25RAY`](https://holg.github.io/tm25ray/sample/lambertian_1mm_1M.TM25RAY) (28 MB)
+- [`docs/sample/lambertian_1mm_1M.TM25RAY`](https://holg.github.io/tm25ray/sample/lambertian_1mm_1M.TM25RAY) (32 MB)
 
 ```bash
 cargo run --release --example tm25_sample -- out.TM25RAY 250000

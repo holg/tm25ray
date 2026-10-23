@@ -163,6 +163,21 @@ impl RayLayout {
         f32::from_le_bytes([rec[4 * i], rec[4 * i + 1], rec[4 * i + 2], rec[4 * i + 3]])
     }
 
+    /// The spectrum index is an `Int` on disk (Table 4-2 of the standard).
+    /// The C++ reference reads every column as f32, so a file written by it
+    /// holds the float bit pattern instead. The two cannot collide: an
+    /// integer index below 2²³ is a denormal when read as a float, and a
+    /// float index of 1.0 or more is at least 2³⁰ when read as an integer.
+    #[inline]
+    fn index_at(rec: &[u8], i: usize) -> u32 {
+        let bits = u32::from_le_bytes([rec[4 * i], rec[4 * i + 1], rec[4 * i + 2], rec[4 * i + 3]]);
+        if bits < 0x0080_0000 {
+            bits
+        } else {
+            f32::from_bits(bits).round().max(0.0) as u32
+        }
+    }
+
     /// Decode one record. `rec` must be at least `record_size` bytes.
     pub fn decode(&self, rec: &[u8]) -> Ray {
         debug_assert!(rec.len() >= self.record_size);
@@ -176,9 +191,7 @@ impl RayLayout {
             radiant_flux_w: self.radiant.map(|i| Self::f32_at(rec, i)),
             luminous_flux_lm: self.luminous.map(|i| Self::f32_at(rec, i)),
             wavelength_nm: self.wavelength.map(|i| Self::f32_at(rec, i)),
-            spectrum_index: self
-                .spectrum_index
-                .map(|i| Self::f32_at(rec, i).round().max(0.0) as u32),
+            spectrum_index: self.spectrum_index.map(|i| Self::index_at(rec, i)),
         }
     }
 
@@ -204,7 +217,11 @@ impl RayLayout {
                 Column::RadiantFlux => ray.radiant_flux_w.unwrap_or(0.0),
                 Column::LuminousFlux => ray.luminous_flux_lm.unwrap_or(0.0),
                 Column::Wavelength => ray.wavelength_nm.unwrap_or(0.0),
-                Column::SpectrumIndex => ray.spectrum_index.unwrap_or(0) as f32,
+                Column::SpectrumIndex => {
+                    // Written as an integer, see `index_at`.
+                    out.extend_from_slice(&(ray.spectrum_index.unwrap_or(0) as i32).to_le_bytes());
+                    continue;
+                }
                 _ => 0.0,
             };
             out.extend_from_slice(&v.to_le_bytes());

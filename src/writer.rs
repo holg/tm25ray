@@ -5,8 +5,9 @@ use std::io::Write;
 
 use crate::error::{Result, Tm25Error};
 use crate::header::{
-    columns_from_flags, Header, DATE_TIME_LEN, FIXED_HEADER_SIZE, FLAGS_OFFSET, MAGIC,
-    TEXT_FIELD_CHARS, TEXT_OFFSET, VERSION_2013,
+    columns_from_flags, spectral_padding, Header, BLOCK_ALIGN, COLUMN_NAME_BYTES,
+    COLUMN_NAME_CHARS, DATE_TIME_LEN, FIXED_HEADER_SIZE, FLAGS_OFFSET, MAGIC, TEXT_FIELD_CHARS,
+    TEXT_OFFSET, VERSION_2013,
 };
 use crate::ray::{Ray, RayLayout};
 
@@ -22,6 +23,13 @@ fn put_utf32(out: &mut Vec<u8>, s: &str) {
     for c in s.chars() {
         out.extend_from_slice(&(c as u32).to_le_bytes());
     }
+}
+
+/// Bytes the additional text block (4.7.6) occupies on disk: UTF-32LE,
+/// padded to a multiple of 32.
+fn additional_text_bytes(header: &Header) -> usize {
+    let raw = header.additional_text.chars().count() * 4;
+    raw + (BLOCK_ALIGN - raw % BLOCK_ALIGN) % BLOCK_ALIGN
 }
 
 /// Serialise the header (everything before the ray block). `n_rays` is
@@ -75,8 +83,9 @@ pub fn encode_header(header: &Header, n_rays: u64) -> Result<Vec<u8>> {
     put_f32(&mut out, header.max_wavelength_nm.unwrap_or(unknown));
     put_i32(&mut out, header.spectra.len() as i32);
     put_i32(&mut out, header.n_additional_items as i32);
-    let text_chars = header.additional_text.chars().count() as i32;
-    put_i32(&mut out, text_chars);
+    // 4.7.1.15: size of the additional text block in bytes, padded to a
+    // multiple of 32 as the reference implementation requires.
+    put_i32(&mut out, additional_text_bytes(header) as i32);
     out.resize(FLAGS_OFFSET, 0);
     for w in header.flags.to_words() {
         put_i32(&mut out, w);
@@ -107,17 +116,33 @@ pub fn encode_header(header: &Header, n_rays: u64) -> Result<Vec<u8>> {
             put_f32(&mut out, *v);
         }
     }
-    // Optional trailer: omitted entirely by writers such as Lumileds, whose
-    // ray block starts right after the fixed header. Mirror what the source
-    // file had so a round trip stays byte exact.
-    if header.has_name_block {
-        put_i32(&mut out, header.column_names.len() as i32);
-        for name in &header.column_names {
-            put_i32(&mut out, name.chars().count() as i32);
-            put_utf32(&mut out, name);
-        }
-        put_utf32(&mut out, &header.additional_text);
+    // The spectral block is padded with zeros to a multiple of 32 bytes
+    // (4 bytes after the usual 51-point table, none when there is no table).
+    let spectral_bytes = out.len() - FIXED_HEADER_SIZE;
+    out.resize(out.len() + spectral_padding(spectral_bytes), 0);
+    // 4.7.5: one fixed 512-byte UTF-32LE name per additional item.
+    if header.column_names.len() != header.n_additional_items {
+        return Err(Tm25Error::InvalidHeader(format!(
+            "{} column names for {} additional items",
+            header.column_names.len(),
+            header.n_additional_items
+        )));
     }
+    for (i, name) in header.column_names.iter().enumerate() {
+        let n = name.chars().count();
+        if n > COLUMN_NAME_CHARS {
+            return Err(Tm25Error::InvalidHeader(format!(
+                "column name {i} has {n} characters, limit is {COLUMN_NAME_CHARS}"
+            )));
+        }
+        let start = out.len();
+        put_utf32(&mut out, name);
+        out.resize(start + COLUMN_NAME_BYTES, 0);
+    }
+    // 4.7.6: the additional text, zero padded to the size written above.
+    let start = out.len();
+    put_utf32(&mut out, &header.additional_text);
+    out.resize(start + additional_text_bytes(header), 0);
     Ok(out)
 }
 

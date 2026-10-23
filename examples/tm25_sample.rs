@@ -111,17 +111,22 @@ fn main() {
     h.min_wavelength_nm = Some(*spectrum.wavelengths_nm.first().unwrap());
     h.max_wavelength_nm = Some(*spectrum.wavelengths_nm.last().unwrap());
     h.spectra = vec![spectrum];
+    // 4.7.3: name, manufacturer, creator of the optical model, creator of the
+    // ray file, equipment / software, camera, operation, additional, geometry.
     h.text.raw[0] = "Synthetic white LED, 1 mm chip under a 1.4 mm dome".into();
-    h.text.raw[1] = "tm25ray".into();
-    h.text.raw[2] = "SAMPLE-WHITE-1".into();
-    h.text.raw[3] = "none: this file is generated, not measured".into();
-    h.text.raw[4] = "examples/tm25_sample.rs".into();
+    h.text.raw[1] = "none: synthetic, not a product".into();
+    h.text.raw[2] = "tm25ray (analytic model)".into();
+    h.text.raw[3] = "tm25ray examples/tm25_sample.rs".into();
+    h.text.raw[4] = "tm25ray writer, generated, not measured".into();
     h.text.raw[6] = "nominal, 1.05 W radiant".into();
     h.text.raw[7] = "Free to copy and redistribute. Ray-traced from an analytic model \
          (Lambertian chip, Snell refraction at the dome, rim leakage); the \
          numbers are plausible, not a real product's."
         .into();
-    h.text.raw[8] = "https://github.com/holg/tm25ray".into();
+    h.text.raw[8] = "chip in the z = 0 plane centred on the origin, dome of radius 1.4 mm \
+         above it; rays start on the dome surface or in the rim gap. \
+         https://github.com/holg/tm25ray"
+        .into();
 
     let file = match std::fs::File::create(&path) {
         Ok(f) => f,

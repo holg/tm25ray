@@ -7,9 +7,9 @@
 //!
 //! # Layout (TM-25-13, little-endian)
 //!
-//! Verified against real vendor files and the field order of the reference
-//! implementation; see `docs/format.md` in the repository for the full
-//! table and the remaining `VERIFY` items.
+//! Verified against real vendor files, the reference implementation and
+//! Table 4-2 of the standard; see `docs/format.md` in the repository for the
+//! full table and the remaining `VERIFY` items.
 //!
 //! | Offset | Content |
 //! |---|---|
@@ -21,8 +21,9 @@
 //! | 76 | i32 spectral table count, i32 additional item count, i32 additional text size, reserved to 256 |
 //! | 256 | 8 × i32 known-data flags: position, direction, radiant flux, wavelength, luminous flux, Stokes, tristimulus, spectrum index |
 //! | 288 | 9 × 1000 UTF-32LE description strings |
-//! | 36 288 | spectral tables (i32 N, N × (f32 λ, f32 value)), column-name block, additional text |
-//! | then | ray records: `x y z kx ky kz` + flagged columns, all f32 |
+//! | 36 288 | spectral tables (i32 N, N × (f32 λ, f32 value)), zero padded to a multiple of 32 bytes |
+//! | then | one 512-byte UTF-32LE name per additional column, then the additional text block (size at offset 84, in bytes) |
+//! | then | ray records: `x y z kx ky kz` + flagged columns, f32 except the i32 spectrum index |
 //!
 //! # Coordinates
 //!
@@ -110,8 +111,9 @@ mod tests {
     }
 
     /// A Lumileds-style header: luminous flux, tristimulus columns, unknown
-    /// wavelengths written as the signalling NaN, and no 4.7.5/4.7.6 trailer —
-    /// the ray block starts right after the fixed 36 288-byte header.
+    /// wavelengths written as the signalling NaN, and no spectral table — so
+    /// no padding, and the ray block starts right after the fixed 36 288-byte
+    /// header.
     fn header_luxeon() -> Header {
         let mut flags = KnownDataFlags::photometric();
         flags.tristimulus = true;
@@ -120,32 +122,29 @@ mod tests {
         h.luminous_flux_lm = 23.994_17;
         h.date_time = "2021-03-15T15:50:05-07:00".into();
         h.spectral_id = SpectralId::None;
-        h.has_name_block = false;
         h.nan_pattern = 0x7F80_0001;
         h.text.raw[0] = "LUXEON_2835N_2780".into();
         h.text.raw[1] = "Lumileds".into();
         h
     }
 
-    /// Files without the optional column-name / additional-text trailer parse:
-    /// the first i32 after the fixed header is ray data, not a count. A real
-    /// Lumileds file read it as −1 089 800 634 and the parse failed.
+    /// With no spectral table there is nothing to pad, so the ray block
+    /// starts at 36 288 exactly. A real Lumileds file is laid out like this;
+    /// 0.1.0 read its first ray as a column-name count of −1 089 800 634.
     #[test]
-    fn header_without_name_block_round_trips() {
+    fn header_without_spectral_table_round_trips() {
         let h = header_luxeon();
         let rays: Vec<Ray> = lambertian_rays(2_000, 1.0, 7)
             .into_iter()
             .map(|r| Ray::new(r.position(), r.direction()).with_luminous_flux(0.012))
             .collect();
         let bytes = to_bytes(&h, &rays).unwrap();
-        // No trailer: the ray block starts at the fixed header size exactly.
         assert_eq!(
             bytes.len(),
             FIXED_HEADER_SIZE + rays.len() * h.record_size()
         );
 
         let f = Tm25File::parse(&bytes).unwrap();
-        assert!(!f.header.has_name_block);
         assert_eq!(f.header.ray_start, FIXED_HEADER_SIZE);
         assert_eq!(f.header.n_rays, 2_000);
         assert_eq!(f.header.flux_kind(), FluxKind::Photometric);
@@ -158,21 +157,77 @@ mod tests {
         assert_eq!(f.header.nan_pattern, 0x7F80_0001);
     }
 
-    /// The trailer is still written and read when the source had one, so both
-    /// vendor shapes survive a round trip unchanged.
+    /// Column names and the additional text survive a round trip, and a
+    /// header with no rays is a complete file.
     #[test]
-    fn header_with_name_block_still_round_trips() {
+    fn column_names_and_text_round_trip() {
         let mut h = header_uv();
         h.n_additional_items = 1;
         h.column_names = vec!["user column".into()];
         h.additional_text = "notes".into();
         let bytes = to_bytes(&h, &[]).unwrap();
         let f = Tm25File::parse(&bytes).unwrap();
-        assert!(f.header.has_name_block);
         assert_eq!(f.header.column_names, vec!["user column".to_string()]);
         assert_eq!(f.header.additional_text, "notes");
-        assert!(f.header.ray_start > FIXED_HEADER_SIZE);
+        // 5 chars = 20 bytes of text, padded to 32.
+        assert_eq!(f.header.additional_text_size, 32);
+        assert_eq!(f.header.ray_start, 36_704 + 512 + 32);
         assert_eq!(to_bytes(&f.header, &[]).unwrap(), bytes);
+    }
+
+    /// The spectral block is padded to a multiple of 32 bytes: a 51-point
+    /// table (412 bytes) gets 4, a 81-point table (652 bytes) gets 20.
+    #[test]
+    fn spectral_block_is_padded_to_32_bytes() {
+        let mut h = header_uv();
+        h.spectra[0].wavelengths_nm = (0..81).map(|i| 380.0 + 5.0 * i as f32).collect();
+        h.spectra[0].values = vec![1.0; 81];
+        h.min_wavelength_nm = Some(380.0);
+        h.max_wavelength_nm = Some(780.0);
+        let rays = lambertian_rays(3, 1.0, 1);
+        let bytes = to_bytes(&h, &rays).unwrap();
+        let f = Tm25File::parse(&bytes).unwrap();
+        assert_eq!(f.header.ray_start, FIXED_HEADER_SIZE + 652 + 20);
+        assert!(bytes[FIXED_HEADER_SIZE + 652..f.header.ray_start]
+            .iter()
+            .all(|b| *b == 0));
+        assert_eq!(f.rays.get(2).unwrap().position(), rays[2].position());
+    }
+
+    /// The spectrum index is an i32 on disk; the f32 bit pattern the C++
+    /// reference writes is accepted too.
+    #[test]
+    fn spectrum_index_is_an_integer_on_disk() {
+        let mut flags = KnownDataFlags::radiometric();
+        flags.spectrum_index = true;
+        let mut h = Header::new(flags);
+        h.spectral_id = SpectralId::PerRayTableIndex;
+        h.min_wavelength_nm = Some(400.0);
+        h.max_wavelength_nm = Some(700.0);
+        let table = |peak: f32| SpectralTable {
+            wavelengths_nm: vec![400.0, peak, 700.0],
+            values: vec![0.0, 1.0, 0.0],
+        };
+        h.spectra = vec![table(450.0), table(600.0)];
+        h.radiant_flux_w = 2.0;
+        let rays = vec![
+            Ray::new([0.0; 3], [0.0, 0.0, 1.0])
+                .with_radiant_flux(1.0)
+                .with_spectrum_index(1),
+            Ray::new([0.0; 3], [0.0, 0.0, 1.0])
+                .with_radiant_flux(1.0)
+                .with_spectrum_index(2),
+        ];
+        let mut bytes = to_bytes(&h, &rays).unwrap();
+        let f = Tm25File::parse(&bytes).unwrap();
+        let start = f.header.ray_start;
+        assert_eq!(f.header.record_size(), 32);
+        assert_eq!(&bytes[start + 28..start + 32], &1i32.to_le_bytes());
+        assert_eq!(f.rays.get(1).unwrap().spectrum_index, Some(2));
+        // The reference's float encoding of the same index.
+        bytes[start + 60..start + 64].copy_from_slice(&2.0f32.to_le_bytes());
+        let f = Tm25File::parse(&bytes).unwrap();
+        assert_eq!(f.rays.get(1).unwrap().spectrum_index, Some(2));
     }
 
     /// Unknown flux totals are NaN in the file; callers get 0.0 so arithmetic
@@ -302,7 +357,8 @@ mod tests {
     fn round_trip_header_and_rays() {
         let rays = lambertian_rays(1000, 5.1e-5, 1);
         let bytes = to_bytes(&header_uv(), &rays).unwrap();
-        // Ray block starts right after the 51-point table + name count.
+        // 51-point table = 412 bytes, padded to 416: the ray block starts at
+        // 36 704, as in the ams OSRAM files.
         assert_eq!(bytes.len(), 36_704 + 1000 * 28);
         let f = Tm25File::parse(&bytes).unwrap();
         assert_eq!(f.header.version, 2013);
@@ -407,13 +463,14 @@ mod tests {
         let rays = lambertian_rays(5, 1.0, 3);
         let bytes = to_bytes(&h, &rays).unwrap();
         let f = Tm25File::parse(&bytes).unwrap();
-        // count(4) + len(4) + 5 chars (20) + 2 text chars (8) after the table.
-        assert_eq!(f.header.ray_start, 36_700 + 4 + 4 + 20 + 8);
+        // 4 bytes of padding after the table, a 512-byte name, 2 text chars
+        // (8 bytes) padded to 32.
+        assert_eq!(f.header.ray_start, 36_700 + 4 + 512 + 32);
         assert_eq!(f.header.record_size(), 32);
         assert_eq!(f.header.columns.last(), Some(&Column::Additional(0)));
         assert_eq!(f.header.column_names, vec!["phase".to_string()]);
         assert_eq!(f.header.additional_text, "hi");
-        assert_eq!(f.header.additional_text_size, 2);
+        assert_eq!(f.header.additional_text_size, 32);
         assert_eq!(f.rays.get(4).unwrap().position(), rays[4].position());
         assert_eq!(
             f.rays

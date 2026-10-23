@@ -2,6 +2,37 @@
 
 ## Unreleased
 
+- **Breaking: the bytes after the spectral tables follow the standard.** The
+  spectral-table block is zero padded to a multiple of 32 bytes, each
+  additional-column name is a fixed 512-byte UTF-32 string, and the text-block
+  size at offset 84 counts bytes. 0.1.x modelled the same bytes as an optional
+  "name count + length-prefixed names" trailer. That fitted both vendors by
+  coincidence (the ams OSRAM 51-point table needs exactly 4 bytes of padding,
+  which reads as a count of zero; Lumileds has no table and no padding) but
+  wrote files a standard reader finds 4 to 20 bytes off, and could not read
+  any file with additional columns. `Header::has_name_block` is gone;
+  `ParseOptions::total_size` only feeds the size check now. Checked against
+  Table 4-2 of the standard and the C++ reference; three ams OSRAM packages
+  (UV-C, GW CSSRMU blue and yellow, 100k to 5M rays, ray blocks at 36 704,
+  37 184 and 37 664) and two Lumileds files round-trip byte for byte. The
+  three files in `docs/sample/` are regenerated. Files written by 0.1.x no
+  longer parse (size mismatch of 4 bytes); regenerate them.
+- **Breaking: `TextFields::model` is now `model_creator`, `laboratory` is
+  `rayfile_creator`**, after the official field names "Creator of Optical
+  Light Source Model" (4.7.3.3) and "Creator of the Ray File" (4.7.3.4). The
+  ams OSRAM value "BZ" in field 3 is a person's initials, not a type code.
+- The spectrum index (identifier 4) is written as an i32, as the standard's
+  table says. The f32 bit pattern the C++ reference writes is still read.
+- The Lambertian ground-truth file carries a per-ray wavelength, uniform over
+  360–830 nm, so luminance code can be checked with V(λ) as well as radiance
+  code without it. Suggested by the TM-25 initiator, who also confirmed the
+  equal-flux, cosine-weighted sampling as the right shape for a ground truth.
+  32 MB instead of 28.
+- The date field width (28 bytes), the text-size position (84), the absence
+  of a per-table index in the spectral block and the nine text-field names
+  are confirmed. The `VERIFY` list in `docs/format.md` is down to the
+  creation-method enumeration and the start-position flag.
+
 - `examples/tm25_sample.rs` writes a synthetic but physically modelled file
   (Lambertian chip, Snell refraction at a silicone dome, rim leakage,
   phosphor-white spectrum with per-ray wavelengths), so the format and the
