@@ -21,7 +21,7 @@ TracePro and SPEOS.
 
 ```toml
 [dependencies]
-tm25ray = "0.1"
+tm25ray = "0.2"
 ```
 
 **[Open a sample in your browser](https://iesna.eu/?wasm=tm25&url=https://holg.github.io/tm25ray/sample/sample_white_led_25k.TM25RAY)**

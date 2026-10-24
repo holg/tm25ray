@@ -1,6 +1,11 @@
 # Changelog
 
-## Unreleased
+## [0.2.0] - 2026-10-24
+
+The block after the spectral tables was laid out wrong in 0.1.x, so files
+this crate wrote were not readable by a standard-conforming reader and files
+with additional columns could not be read. Fixed after checking the layout
+against the standard's own table. Two public API changes, hence 0.2.
 
 - **Breaking: the bytes after the spectral tables follow the standard.** The
   spectral-table block is zero padded to a multiple of 32 bytes, each
