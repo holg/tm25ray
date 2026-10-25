@@ -24,11 +24,12 @@ TracePro and SPEOS.
 tm25ray = "0.2"
 ```
 
-**[Open a sample in your browser](https://iesna.eu/?wasm=tm25&url=https://holg.github.io/tm25ray/sample/sample_white_led_25k.TM25RAY)**
+**[Open a sample in your browser](https://tm25.eu/viewer/?url=/sample/sample_white_led_25k.TM25RAY)**
 — one click, no install, WebGPU required. Your own files are read locally and
-never uploaded. More at **[holg.github.io/tm25ray](https://holg.github.io/tm25ray/)**.
+never uploaded. The viewer lives at **[tm25.eu](https://tm25.eu/)**; the same
+build also runs inside the eulumdat-rs editor at iesna.eu/?wasm=tm25.
 
-[![The far-field solid of an ams OSRAM UV-C emitter with the emitting die visible inside it](docs/img/viewer-far-field.jpg)](https://iesna.eu/?wasm=tm25)
+[![The far-field solid of an ams OSRAM UV-C emitter with the emitting die visible inside it](docs/img/viewer-far-field.jpg)](https://tm25.eu/viewer/)
 
 ## What you get
 
@@ -173,7 +174,7 @@ cargo run --release --example tm25_sample -- out.TM25RAY 250000
 ```
 
 The viewer also takes a `url` parameter, so any CORS-enabled `.TM25RAY` can be
-opened by link: `iesna.eu/?wasm=tm25&url=<file>`.
+opened by link: `tm25.eu/viewer/?url=<file>`.
 
 Real measured files come from the manufacturers' product pages (ams OSRAM,
 Lumileds, Nichia, Cree), which is what this crate was verified against.

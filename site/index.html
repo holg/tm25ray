@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>tm25.eu — IES TM-25 ray file viewer</title>
+<meta name="description" content="Open an IES TM-25 ray file (.TM25RAY) in your browser: the near-field emission of an LED as rays, far field, irradiance plane, spectrum. No install, nothing uploaded.">
+<meta property="og:title" content="tm25.eu — IES TM-25 ray file viewer">
+<meta property="og:description" content="Look at the ray files LED makers publish, in your browser. Rays, far-field solid, near-field irradiance, exports to EULUMDAT, IES and ATLA.">
+<meta property="og:image" content="https://tm25.eu/img/viewer-far-field.jpg">
+<link rel="canonical" href="https://tm25.eu/">
+<style>
+:root {
+  --bg: #0d0f14;
+  --panel: #141821;
+  --line: #242a36;
+  --fg: #e8ecf1;
+  --dim: #9aa4b2;
+  --accent: #8fb4ff;
+  --accent-strong: #1f6feb;
+  --green: #8ee07a;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 16px/1.65 system-ui, -apple-system, "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 860px; margin: 0 auto; padding: 0 20px 80px; }
+header { padding: 64px 0 40px; }
+.eyebrow {
+  font-size: 11px; letter-spacing: 3px; text-transform: uppercase;
+  color: var(--accent); margin-bottom: 10px;
+}
+h1 { font-size: 44px; font-weight: 300; margin: 0 0 14px; letter-spacing: -0.5px; }
+.lede { font-size: 19px; color: var(--dim); margin: 0 0 26px; max-width: 62ch; }
+.btns { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.btn {
+  display: inline-block; padding: 11px 20px; border-radius: 7px;
+  text-decoration: none; font-size: 15px; border: 1px solid transparent;
+}
+.btn-primary { background: var(--accent-strong); color: #fff; }
+.btn-primary:hover { background: #2b7cf7; }
+.btn-ghost { border-color: var(--line); color: var(--fg); }
+.btn-ghost:hover { border-color: var(--accent); color: var(--accent); }
+.note { font-size: 13px; color: var(--dim); margin-top: 10px; }
+figure { margin: 34px 0 0; }
+figure img {
+  width: 100%; height: auto; display: block;
+  border: 1px solid var(--line); border-radius: 10px; background: #000;
+}
+figcaption { font-size: 13px; color: var(--dim); margin-top: 9px; }
+h2 {
+  font-size: 13px; letter-spacing: 2.5px; text-transform: uppercase;
+  color: var(--accent); margin: 52px 0 14px; font-weight: 600;
+}
+p { margin: 0 0 15px; }
+a { color: var(--accent); }
+code {
+  font-family: var(--mono); font-size: 0.9em;
+  background: var(--panel); padding: 2px 6px; border-radius: 4px;
+}
+pre {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+  padding: 14px 16px; overflow-x: auto; font-family: var(--mono);
+  font-size: 13.5px; line-height: 1.6; margin: 0 0 16px;
+}
+pre code { background: none; padding: 0; }
+.cards { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 9px; padding: 15px 17px; }
+.card h4 { margin: 0 0 6px; font-size: 15px; font-weight: 500; }
+.card p { margin: 0; font-size: 14px; color: var(--dim); }
+.callout {
+  border-left: 3px solid var(--green); background: #12180f66;
+  padding: 13px 17px; border-radius: 0 7px 7px 0; margin: 0 0 16px;
+}
+.callout p { margin: 0; font-size: 15px; }
+footer {
+  border-top: 1px solid var(--line); margin-top: 58px; padding-top: 22px;
+  font-size: 14px; color: var(--dim);
+}
+@media (max-width: 600px) {
+  h1 { font-size: 33px; }
+  .lede { font-size: 17px; }
+  header { padding: 40px 0 28px; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="eyebrow">IES TM-25 · ray files · in the browser</div>
+  <h1>TM-25 Ray File Viewer</h1>
+  <p class="lede">
+    Open the ray files LED manufacturers publish and look at them: every ray
+    from its real start point, the far field they add up to, the irradiance a
+    plane millimetres above the source receives, the spectrum.
+  </p>
+  <div class="btns">
+    <a class="btn btn-primary" href="/viewer/">Open the viewer</a>
+    <a class="btn btn-ghost" href="/viewer/?url=/sample/sample_white_led_25k.TM25RAY">Try it with a sample</a>
+    <a class="btn btn-ghost" href="https://github.com/holg/tm25ray">Source on GitHub</a>
+  </div>
+  <p class="note">
+    Nothing to install. Your files are read in your browser and never
+    uploaded; this site keeps no logs of what you open. Needs WebGPU: Chrome,
+    Edge, Safari 26, or Firefox with WebGPU enabled.
+  </p>
+</header>
+
+<figure>
+  <img src="/img/viewer-far-field.jpg" alt="A rendered far-field solid, coloured green to blue, with the bright rectangular emitting surface of the LED die visible inside it.">
+  <figcaption>
+    An ams OSRAM UV-C emitter: 500 000 rays leaving the die, wrapped in the
+    far-field solid computed from all of them. The bright rectangle in the
+    middle is the emitting surface itself, which is the thing a ray file
+    records and an ordinary photometric file cannot.
+  </figcaption>
+</figure>
+
+<h2>What a TM-25 file is</h2>
+
+<p>
+  An LDT or IES photometric file describes a luminaire as a point: intensity
+  in every direction, measured far enough away that the size of the source no
+  longer matters. That is all a lighting designer needs for a room.
+</p>
+<p>
+  It is not enough for someone designing the optic itself. Put a lens two
+  millimetres above a die and the point-source assumption collapses, because
+  different parts of the lens see different parts of the emitter. So LED makers
+  publish ray files instead: every ray with a start point in millimetres, a
+  direction, a flux, and optionally a wavelength, polarisation state or colour
+  coordinates. Packages run from 100 000 to 20 million rays.
+</p>
+<p>
+  IES TM-25 is the vendor-neutral format for that data, consumed by Zemax
+  OpticStudio, LightTools, SPEOS and similar tools. ams OSRAM, Lumileds,
+  Nichia and Cree all ship it. Until now, looking at one meant a Windows
+  desktop application or a licence for one of those optics packages. This
+  viewer runs in the browser.
+</p>
+
+<h2>What the viewer shows</h2>
+
+<div class="cards">
+  <div class="card">
+    <h4>The rays</h4>
+    <p>Drawn from their real start points, so the die, the lens exit and the package geometry are visible.</p>
+  </div>
+  <div class="card">
+    <h4>Far-field solid</h4>
+    <p>Every ray binned into a C/γ grid with solid-angle normalisation, the same distribution an LDT would carry, with x and y cross sections.</p>
+  </div>
+  <div class="card">
+    <h4>Near-field irradiance</h4>
+    <p>A target plane from 0.1 mm to 500 mm above the source, in W/m², where the point-source model breaks down.</p>
+  </div>
+  <div class="card">
+    <h4>Spectrum and safety</h4>
+    <p>PPFD for horticultural sources, and ICNIRP actinic dose for UV emitters, from the header spectrum.</p>
+  </div>
+</div>
+
+<p style="margin-top:18px">
+  The viewer exports what it computes as EULUMDAT, IES, ATLA XML with the
+  spectrum attached, or a relative <code>.spd</code>. Files of any size
+  stream through the browser in slices; a 560 MB, 20-million-ray package
+  opens without being loaded into memory.
+</p>
+
+<figure>
+  <img src="/img/viewer-rays.jpg" alt="The same emitter drawn as rays only, a dense cloud of fine lines spreading outward and downward from a small rectangular source.">
+  <figcaption>The same file with the solid switched off: 200 000 flux-weighted rays, additively blended.</figcaption>
+</figure>
+
+<h2>Files to try</h2>
+
+<p>
+  Vendor licences permit use but not redistribution, so no manufacturer's file
+  can be offered here. Instead there is a generated one, free to copy,
+  ray-traced from an analytic model: a 1 mm square chip emitting Lambertian
+  under a 1.4 mm silicone dome, refracted at the dome surface by Snell's law,
+  with a small fraction escaping past the rim. Each ray starts where it leaves
+  the package, on the dome or in the rim gap, as in a vendor file. It carries
+  a phosphor-white spectrum and a per-ray wavelength.
+</p>
+
+<div class="btns">
+  <a class="btn btn-primary" href="/viewer/?url=/sample/sample_white_led_25k.TM25RAY">Open the sample</a>
+  <a class="btn btn-ghost" href="/viewer/?url=/sample/sample_white_led_100k.TM25RAY">Open the 100k version</a>
+</div>
+<p class="note">
+  To keep a copy, download
+  <a href="/sample/sample_white_led_25k.TM25RAY" download>25k rays (0.8 MB)</a> or
+  <a href="/sample/sample_white_led_100k.TM25RAY" download>100k rays (3.2 MB)</a>
+  and drop it on the viewer. Both describe the same source: 1.05 W radiant,
+  half intensity at 61°. It is a simulation and its header says so.
+</p>
+
+<p style="margin-top:18px">
+  For checking luminance code there is also a ground truth: a flat
+  1&nbsp;×&nbsp;1&nbsp;mm Lambertian square, 1&nbsp;W, 1M equal-flux rays with a
+  flat 360–830&nbsp;nm spectrum, whose radiance is exactly
+  318&nbsp;310&nbsp;W/(sr·m²) at every point and in every direction.
+  <a href="/viewer/?url=/sample/lambertian_1mm_1M.TM25RAY">Open it</a> or
+  <a href="/sample/lambertian_1mm_1M.TM25RAY" download>download it (32 MB)</a>,
+  and see
+  <a href="https://github.com/holg/tm25ray/blob/main/docs/luminance.md">the luminance notes</a>
+  for the method and the noise to expect.
+</p>
+
+<p>
+  For real measured data, ams OSRAM, Lumileds, Nichia and Cree publish ray files
+  on their product pages, usually beside the datasheet and in several ray
+  counts. Those are the files the reader was verified against.
+</p>
+
+<h2>Open source</h2>
+
+<p>
+  The reader behind the viewer is
+  <a href="https://crates.io/crates/tm25ray">tm25ray</a>, a Rust crate with
+  no dependencies that parses, writes and streams TM-25 files and bins them
+  into a far field. The format is documented in its
+  <a href="https://github.com/holg/tm25ray/blob/main/docs/format.md">format notes</a>,
+  reverse-engineered from vendor files and checked against the standard and
+  Julius Muschaweck's C++
+  <a href="https://github.com/JuliusMuschaweck/TM25RaySetTools">TM25RaySetTools</a>.
+  The 3D viewer is part of
+  <a href="https://github.com/holg/eulumdat-rs">eulumdat-rs</a>, whose editor at
+  <a href="https://iesna.eu/">iesna.eu</a> can take a far field exported here
+  into a virtual goniophotometer with covers and reflectors.
+</p>
+
+<pre><code>[dependencies]
+tm25ray = "0.2"</code></pre>
+
+<footer>
+  <p>
+    AGPL-3.0-or-later. Made by <a href="https://github.com/holg">Holger Trahe</a>.
+    No analytics, no cookies, no accounts.
+  </p>
+</footer>
+
+</div>
+</body>
+</html>
