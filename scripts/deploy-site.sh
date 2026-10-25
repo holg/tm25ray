@@ -35,8 +35,12 @@ echo "== viewer bundle symlink"
 ssh "$HOST" "cd $BUNDLE_DIR && js=\$(ls -t tm25-viewer-*.js | grep -v '\.br\$' | head -1) && ln -sfn \"\$js\" tm25-viewer.js && { [ -f \"\$js.br\" ] && ln -sfn \"\$js.br\" tm25-viewer.js.br || rm -f tm25-viewer.js.br; } && echo \"tm25-viewer.js -> \$js\" && grep -o '[A-Za-z0-9_-]*_bg\.wasm' \"\$js\" | sort -u | sed 's/^/  wasm: /'"
 
 echo "== check"
-for u in https://tm25.eu/ https://www.tm25.eu/ https://anything.tm25.eu/ https://tm25.eu/viewer/ https://tm25.eu/tm25/tm25-viewer.js https://tm25.eu/sample/sample_white_led_25k.TM25RAY; do
+for u in https://tm25.eu/ https://www.tm25.eu/ https://anything.tm25.eu/ https://tm25.eu/viewer/ https://tm25.eu/tm25/tm25-viewer.js https://tm25.eu/sample/sample_white_led_25k.TM25RAY "https://tm25.eu/app/?wasm=goniosim&source=tm25"; do
     printf "%-60s %s\n" "$u" "$(curl -sS -o /dev/null -w '%{http_code} %{content_type} %{size_download}B' -H 'Accept-Encoding: br' "$u")"
 done
 wasm=$(curl -sS https://tm25.eu/tm25/tm25-viewer.js | grep -o '[A-Za-z0-9_-]*_bg\.wasm' | head -1)
 printf "%-60s %s\n" "https://tm25.eu/tm25/$wasm" "$(curl -sS -o /dev/null -w '%{http_code} %{content_type} %{size_download}B' -H 'Accept-Encoding: br' -r 0-0 "https://tm25.eu/tm25/$wasm")"
+# The editor under /app/ must resolve its own glue, wasm and the hashed TM-25 loader relative to /app/.
+for rel in $(curl -sS https://tm25.eu/app/ | grep -o "\./[A-Za-z0-9_-]*\.\(js\|wasm\|css\)" | sort -u | head -4); do
+    printf "%-60s %s\n" "https://tm25.eu/app/${rel#./}" "$(curl -sS -o /dev/null -w '%{http_code} %{content_type}' -H 'Accept-Encoding: br' -r 0-0 "https://tm25.eu/app/${rel#./}")"
+done

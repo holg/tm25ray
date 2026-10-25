@@ -386,10 +386,20 @@ function renderExports(e) {
     </div>
     <div class="dim tiny" style="margin-top:6px;">${lumens > 0 ? `lamp flux ${lumens.toFixed(2)} lm · ATLA carries the spectrum` : "radiometric file without lumens: intensities per kW, see report field"}</div>
     <div class="btns" style="margin-top:8px;">
-      <a class="btn" style="background:#238636; color:#fff; padding:6px 10px;" href="https://iesna.eu/?wasm=goniosim" target="_blank" rel="noopener">Virtual goniometer at iesna.eu</a>
+      <button id="open_editor" class="primary">Open in editor</button>
+      <button id="open_gonio" style="background:#238636; color:#fff; padding:6px 10px;">Virtual goniometer</button>
     </div>
-    <div class="dim tiny" style="margin-top:6px;">The eulumdat-rs editor at iesna.eu replays ${esc(kept)} flux-weighted rays as a near-field source through covers and reflectors; open the same file there with its TM-25 viewer, or load the exported .ldt in its editor.</div>`;
+    <div class="dim tiny" style="margin-top:6px;">The goniometer replays ${esc(kept)} flux-weighted rays as the near-field source, so covers and reflectors see the real emitting area.</div>`;
   for (const b of box.querySelectorAll("button[data-k]")) b.addEventListener("click", () => { const c = e[b.dataset.k]; if (c) download(c, `${name}.${b.dataset.ext}`); });
+  // Same origin as /app/ (the eulumdat-rs editor), so the editor finds the
+  // LDT in localStorage and the goniometer finds the ray subset the viewer
+  // stashed in IndexedDB under "gonio".
+  $("open_editor").addEventListener("click", () => {
+    if (!e.ldt) return;
+    try { localStorage.setItem("eulumdat_pending_file", JSON.stringify({ name: `${name}.ldt`, content: e.ldt })); } catch (_) {}
+    location.href = "/app/";
+  });
+  $("open_gonio").addEventListener("click", () => { location.href = "/app/?wasm=goniosim&source=tm25"; });
 }
 
 setInterval(() => {
