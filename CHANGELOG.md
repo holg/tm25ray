@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.2.1] - 2026-10-25
+
+- **LightTools export.** `write_lighttools`, `to_lighttools_bytes`,
+  `LightToolsHeader::from_tm25` and a `LightToolsFile` parser write and read
+  LightTools binary ray files (`.ray`, `LTRF` version 2): radiometric or
+  photometric flux, a wavelength per ray when the TM-25 file has one, mm
+  positions, `LTRFEND` trailer. The layout and the TM-25 mapping follow the
+  C++ reference's `LightToolsBinary.cpp` and `TranslateLightTools.cpp`, and
+  files written here were read back by that reference code (compiled with a
+  stub for its MSVC-only parts): ams OSRAM, Lumileds and the generated
+  samples, counts and flux sums matching. `examples/tm25_to_lighttools.rs`
+  converts a file, optionally as a flux-preserving subsample.
+
 ## [0.2.0] - 2026-10-24
 
 The block after the spectral tables was laid out wrong in 0.1.x, so files

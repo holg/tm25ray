@@ -1,5 +1,6 @@
 //! IES TM-25 ray files (`.TM25RAY`): zero-copy and streaming readers, a
-//! writer, flux-preserving subsampling and a far-field C/γ converter.
+//! writer, flux-preserving subsampling, a far-field C/γ converter and an
+//! export to LightTools binary ray files ([`lighttools`]).
 //!
 //! TM-25 describes a light source as individual rays (start point in mm,
 //! unit direction, flux) rather than an angular intensity table, so it is
@@ -41,6 +42,7 @@
 pub mod error;
 pub mod farfield;
 pub mod header;
+pub mod lighttools;
 #[cfg(feature = "mmap")]
 pub mod mmap;
 pub mod ray;
@@ -54,6 +56,7 @@ pub use header::{
     columns_from_flags, Column, FluxKind, Header, KnownDataFlags, ParseOptions, SpectralId,
     SpectralTable, TextFields, FIXED_HEADER_SIZE, MAGIC, VERSION_2013,
 };
+pub use lighttools::{to_lighttools_bytes, write_lighttools, LightToolsFile, LightToolsHeader};
 #[cfg(feature = "mmap")]
 pub use mmap::Tm25Mmap;
 pub use ray::{direction_to_c_gamma, from_bevy, to_bevy, Ray, RayIter, RayLayout, RayView};
@@ -192,6 +195,95 @@ mod tests {
             .iter()
             .all(|b| *b == 0));
         assert_eq!(f.rays.get(2).unwrap().position(), rays[2].position());
+    }
+
+    /// LightTools export: radiometric with a wavelength per ray keeps the
+    /// 32-byte record, and the file reads back with the same rays.
+    #[test]
+    fn lighttools_round_trip_spectral() {
+        let mut flags = KnownDataFlags::radiometric();
+        flags.wavelength = true;
+        let mut h = Header::new(flags);
+        h.spectral_id = SpectralId::PerRayWavelength;
+        h.min_wavelength_nm = Some(400.0);
+        h.max_wavelength_nm = Some(700.0);
+        h.radiant_flux_w = 1.0;
+        let rays: Vec<Ray> = lambertian_rays(500, 0.002, 9)
+            .into_iter()
+            .enumerate()
+            .map(|(i, r)| r.with_wavelength(400.0 + (i % 300) as f32))
+            .collect();
+        let bytes = to_lighttools_bytes(&h, &rays).unwrap();
+        assert_eq!(&bytes[..4], b"LTRF");
+        assert_eq!(bytes.len(), 44 + 500 * 32 + 7);
+        assert_eq!(&bytes[bytes.len() - 7..], b"LTRFEND");
+        // Header words: major 2, minor 0, radiometric 0, near field 0, colour 2, mm 1.
+        let w = |i: usize| u32::from_le_bytes([bytes[i], bytes[i + 1], bytes[i + 2], bytes[i + 3]]);
+        assert_eq!([w(4), w(8), w(12), w(16), w(20), w(24)], [2, 0, 0, 0, 2, 1]);
+        assert_eq!(f32::from_bits(w(40)), 1.0);
+        let back = LightToolsFile::parse(&bytes).unwrap();
+        assert_eq!(back.header.flux_kind, FluxKind::Radiometric);
+        assert!(back.header.per_ray_wavelength);
+        assert_eq!(back.rays.len(), 500);
+        for (a, b) in back.rays.iter().zip(&rays) {
+            assert_eq!(a.position(), b.position());
+            assert_eq!(a.direction(), b.direction());
+            assert_eq!(a.radiant_flux_w, b.radiant_flux_w);
+            assert_eq!(a.wavelength_nm, b.wavelength_nm);
+        }
+    }
+
+    /// A photometric file exports luminous flux in 28-byte records, and a
+    /// flux-rescaled subsample keeps the header total meaningful.
+    #[test]
+    fn lighttools_photometric_and_subsample() {
+        let h = header_luxeon();
+        let rays: Vec<Ray> = lambertian_rays(2_000, 1.0, 7)
+            .into_iter()
+            .map(|r| Ray::new(r.position(), r.direction()).with_luminous_flux(0.012))
+            .collect();
+        let tm25 = to_bytes(&h, &rays).unwrap();
+        let f = Tm25File::parse(&tm25).unwrap();
+        let mut lt = LightToolsHeader::from_tm25(&f.header).unwrap();
+        assert_eq!(lt.flux_kind, FluxKind::Photometric);
+        assert!(!lt.per_ray_wavelength);
+        lt.total_flux = 2_000.0 * 0.012;
+        let mut out = Vec::new();
+        let n = write_lighttools(&mut out, &lt, subsample(&f.rays, 200, 3)).unwrap();
+        assert_eq!(n, 200);
+        assert_eq!(out.len(), 44 + 200 * 28 + 7);
+        let back = LightToolsFile::parse(&out).unwrap();
+        let sum: f32 = back.rays.iter().map(|r| r.luminous_flux_lm.unwrap()).sum();
+        assert!((sum - 24.0).abs() < 1e-3, "{sum}");
+        assert!(back.rays.iter().all(|r| r.radiant_flux_w.is_none()));
+    }
+
+    /// LightTools has no photometric + spectral combination, and a shared
+    /// spectral table is not a per-ray column, so it maps to "no colour".
+    #[test]
+    fn lighttools_mapping_rules() {
+        let h = header_uv();
+        let lt = LightToolsHeader::from_tm25(&h).unwrap();
+        assert_eq!(lt.flux_kind, FluxKind::Radiometric);
+        assert!(!lt.per_ray_wavelength);
+        let mut flags = KnownDataFlags::photometric();
+        flags.wavelength = true;
+        let mut bad = Header::new(flags);
+        bad.spectral_id = SpectralId::PerRayWavelength;
+        assert!(LightToolsHeader::from_tm25(&bad).is_err());
+        let mut none = Header::new(KnownDataFlags::radiometric());
+        none.flags.radiant_flux = false;
+        assert!(LightToolsHeader::from_tm25(&none).is_err());
+        assert!(matches!(
+            LightToolsFile::parse(b"LTRX"),
+            Err(Tm25Error::Truncated { .. })
+        ));
+        let mut v3 = to_lighttools_bytes(&h, &[]).unwrap();
+        v3[4] = 3;
+        assert!(matches!(
+            LightToolsFile::parse(&v3),
+            Err(Tm25Error::UnsupportedVersion(3))
+        ));
     }
 
     /// The spectrum index is an i32 on disk; the f32 bit pattern the C++

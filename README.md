@@ -49,6 +49,9 @@ build also runs inside the eulumdat-rs editor at iesna.eu/?wasm=tm25.
   See [Vendor differences](docs/format.md#vendor-differences-confirmed-on-real-files).
 - **Writer** — `write_tm25(...)` produces files that round-trip byte-for-byte
   on the header; use it to export subsets or synthetic sources.
+- **LightTools export** — `write_lighttools(...)` writes the LightTools
+  binary ray format (`.ray`), radiometric or photometric, with a wavelength
+  per ray when the file has one. Verified against the C++ reference's reader.
 - **Flux-preserving subsampling** — `subsample` (Floyd) and a streaming
   `Reservoir`; the kept rays are rescaled so their flux still sums to the
   file total. Deterministic per seed, built-in PRNG.
@@ -128,6 +131,7 @@ cargo run --release --example tm25_grid -- file.TM25RAY   # the binned C/γ grid
 cargo run --release --example tm25_bench -- file.TM25RAY  # timings per stage (see Performance)
 cargo run --release --example tm25_sample -- out.TM25RAY   # write a synthetic file to open
 cargo run --release --example tm25_lambertian -- out.TM25RAY # Lambertian ground truth for luminance checks
+cargo run --release --example tm25_to_lighttools -- in.TM25RAY out.ray [n_rays] # LightTools .ray, optionally subsampled
 cargo run --release --example tm25_roundtrip -- file.TM25RAY # header parses and re-writes byte for byte
 ```
 
