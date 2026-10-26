@@ -56,7 +56,10 @@ pub use header::{
     columns_from_flags, Column, FluxKind, Header, KnownDataFlags, ParseOptions, SpectralId,
     SpectralTable, TextFields, FIXED_HEADER_SIZE, MAGIC, VERSION_2013,
 };
-pub use lighttools::{to_lighttools_bytes, write_lighttools, LightToolsFile, LightToolsHeader};
+pub use lighttools::{
+    is_lighttools, to_lighttools_bytes, write_lighttools, LightToolsFile, LightToolsHeader,
+    LIGHTTOOLS_VERSION_TAG,
+};
 #[cfg(feature = "mmap")]
 pub use mmap::Tm25Mmap;
 pub use ray::{direction_to_c_gamma, from_bevy, to_bevy, Ray, RayIter, RayLayout, RayView};
@@ -256,6 +259,67 @@ mod tests {
         let sum: f32 = back.rays.iter().map(|r| r.luminous_flux_lm.unwrap()).sum();
         assert!((sum - 24.0).abs() < 1e-3, "{sum}");
         assert!(back.rays.iter().all(|r| r.radiant_flux_w.is_none()));
+    }
+
+    /// A LightTools file read back as a TM-25 header streams through the
+    /// TM-25 record decoder unchanged: same columns, record size, start
+    /// offset and ray count, and written out as TM-25 it parses again with
+    /// the same rays.
+    #[test]
+    fn lighttools_reads_back_as_tm25() {
+        let mut flags = KnownDataFlags::radiometric();
+        flags.wavelength = true;
+        let mut h = Header::new(flags);
+        h.spectral_id = SpectralId::PerRayWavelength;
+        h.min_wavelength_nm = Some(400.0);
+        h.max_wavelength_nm = Some(700.0);
+        h.radiant_flux_w = 0.5;
+        let rays: Vec<Ray> = lambertian_rays(300, 0.5 / 300.0, 11)
+            .into_iter()
+            .enumerate()
+            .map(|(i, r)| r.with_wavelength(450.0 + i as f32))
+            .collect();
+        let lt_bytes = to_lighttools_bytes(&h, &rays).unwrap();
+        assert!(is_lighttools(&lt_bytes));
+        let lt = LightToolsHeader::parse(&lt_bytes).unwrap();
+        let th = lt.to_tm25_header("lamp.ray", Some(lt_bytes.len() as u64));
+        assert!(th.is_lighttools());
+        assert_eq!(th.n_rays, 300);
+        assert_eq!(th.ray_start, 44);
+        assert_eq!(th.record_size(), 32);
+        assert_eq!(th.spectral_id, SpectralId::PerRayWavelength);
+        assert_eq!(th.flux_kind(), FluxKind::Radiometric);
+        assert_eq!(th.radiant_flux_w, 0.5);
+        assert_eq!(th.text.name(), "lamp.ray");
+        // Stream the records with the TM-25 layout.
+        let layout = RayLayout::from_header(&th);
+        let block = &lt_bytes[th.ray_start..th.ray_start + th.ray_block_size() as usize];
+        let streamed: Vec<Ray> = block
+            .chunks_exact(th.record_size())
+            .map(|r| layout.decode(r))
+            .collect();
+        assert_eq!(streamed, rays);
+        // And as a TM-25 file.
+        let (th2, rays2) = LightToolsFile::parse(&lt_bytes)
+            .unwrap()
+            .to_tm25("lamp.ray");
+        assert_eq!(th2, th);
+        let tm25 = to_bytes(&th2, &rays2).unwrap();
+        let f = Tm25File::parse(&tm25).unwrap();
+        assert_eq!(f.header.version, 2013);
+        assert_eq!(f.rays.iter().collect::<Vec<_>>(), rays);
+        // Photometric, no wavelength: 28-byte records, luminous column.
+        let lt_p = LightToolsHeader {
+            flux_kind: FluxKind::Photometric,
+            per_ray_wavelength: false,
+            total_flux: 12.0,
+            ..lt.clone()
+        };
+        let th_p = lt_p.to_tm25_header("p.ray", Some(lt_p.file_size_for(10)));
+        assert_eq!((th_p.n_rays, th_p.record_size()), (10, 28));
+        assert_eq!(th_p.flux_kind(), FluxKind::Photometric);
+        assert_eq!(th_p.luminous_flux_lm, 12.0);
+        assert_eq!(th_p.spectral_id, SpectralId::None);
     }
 
     /// LightTools has no photometric + spectral combination, and a shared

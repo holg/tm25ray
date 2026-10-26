@@ -361,6 +361,8 @@ impl Default for ParseOptions {
 /// Parsed TM-25 header.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Header {
+    /// 2013 for a TM-25 file; [`crate::lighttools::LIGHTTOOLS_VERSION_TAG`]
+    /// for a header synthesised from a LightTools file.
     pub version: i32,
     /// 4.7.1.3. The reference code expects 0 or 1 (0 = simulation) and only
     /// warns otherwise; ams OSRAM files carry −1. Enumeration VERIFY.
@@ -412,6 +414,14 @@ pub struct Header {
 }
 
 impl Header {
+    /// True for a header synthesised from a LightTools ray file
+    /// ([`crate::LightToolsHeader::to_tm25_header`]): its ray block is
+    /// followed by the 7-byte `LTRFEND` trailer, so the file is that much
+    /// longer than `ray_start + ray_block_size()`.
+    pub fn is_lighttools(&self) -> bool {
+        self.version == crate::lighttools::LIGHTTOOLS_VERSION_TAG
+    }
+
     /// Bytes per ray record.
     pub fn record_size(&self) -> usize {
         self.columns.len() * 4

@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.2.2] - 2026-10-26
+
+- **LightTools import.** `LightToolsHeader::to_tm25_header` synthesises a
+  TM-25 `Header` for a LightTools file (same column order, `ray_start` 44,
+  ray count from the file size, `version` = `LIGHTTOOLS_VERSION_TAG`,
+  `Header::is_lighttools`), so any code that streams TM-25 ray blocks by
+  header streams a `.ray` file unchanged; `LightToolsFile::to_tm25` and
+  `is_lighttools` for in-memory use. `examples/tm25_to_lighttools.rs`
+  converts in both directions, by magic.
+
 ## [0.2.1] - 2026-10-25
 
 - **LightTools export.** `write_lighttools`, `to_lighttools_bytes`,

@@ -28,7 +28,7 @@
 use std::io::Write;
 
 use crate::error::{Result, Tm25Error};
-use crate::header::{FluxKind, Header, SpectralId};
+use crate::header::{columns_from_flags, FluxKind, Header, KnownDataFlags, SpectralId};
 use crate::ray::Ray;
 
 /// Magic at offset 0.
@@ -37,6 +37,16 @@ pub const LT_MAGIC: [u8; 4] = *b"LTRF";
 pub const LT_END: [u8; 7] = *b"LTRFEND";
 /// Header size for version 2 files.
 pub const LT_HEADER_SIZE: usize = 44;
+/// `Header::version` of a TM-25 header synthesised from a LightTools file by
+/// [`LightToolsHeader::to_tm25_header`]: the LightTools major version, so a
+/// reader pipeline built around [`Header`] can tell the two apart
+/// ([`Header::is_lighttools`]). The TM-25 writer always writes 2013.
+pub const LIGHTTOOLS_VERSION_TAG: i32 = 2;
+
+/// True when `bytes` start with the LightTools magic.
+pub fn is_lighttools(bytes: &[u8]) -> bool {
+    bytes.len() >= 4 && bytes[..4] == LT_MAGIC
+}
 
 /// Header of a LightTools binary ray file, version 2.
 #[derive(Clone, Debug, PartialEq)]
@@ -87,6 +97,72 @@ impl LightToolsHeader {
             origin: [0.0; 3],
             total_flux,
         })
+    }
+
+    /// Rays in a file of `file_size` bytes: everything between the header
+    /// and the `LTRFEND` trailer, in whole records.
+    pub fn ray_count_for_size(&self, file_size: u64) -> u64 {
+        file_size.saturating_sub((LT_HEADER_SIZE + LT_END.len()) as u64) / self.record_size() as u64
+    }
+
+    /// Size of a file holding `n_rays` records.
+    pub fn file_size_for(&self, n_rays: u64) -> u64 {
+        LT_HEADER_SIZE as u64 + n_rays * self.record_size() as u64 + LT_END.len() as u64
+    }
+
+    /// A TM-25 [`Header`] describing this file's records, so the same code
+    /// that streams TM-25 ray blocks can stream a LightTools file: the record
+    /// is `x y z kx ky kz flux [λ]`, exactly the TM-25 column order for a
+    /// file with one flux column and an optional per-ray wavelength, so
+    /// `columns`, `record_size` and `ray_start` (44) line up. `n_rays` comes
+    /// from `file_size` (the trailer is excluded), 0 when unknown.
+    /// `version` is [`LIGHTTOOLS_VERSION_TAG`]; the wavelength bounds are
+    /// unknown (`None`), the spectral identifier is 2 with a wavelength
+    /// column and 0 without.
+    pub fn to_tm25_header(&self, name: &str, file_size: Option<u64>) -> Header {
+        let mut flags = KnownDataFlags::radiometric();
+        if self.flux_kind == FluxKind::Photometric {
+            flags.radiant_flux = false;
+            flags.luminous_flux = true;
+        }
+        flags.wavelength = self.per_ray_wavelength;
+        let mut h = Header::new(flags);
+        h.version = LIGHTTOOLS_VERSION_TAG;
+        h.creation_method = -1;
+        match self.flux_kind {
+            FluxKind::Photometric => h.luminous_flux_lm = self.total_flux,
+            _ => h.radiant_flux_w = self.total_flux,
+        }
+        h.spectral_id = if self.per_ray_wavelength {
+            SpectralId::PerRayWavelength
+        } else {
+            SpectralId::None
+        };
+        h.text.raw[0] = name.to_string();
+        h.text.raw[3] = "LightTools binary ray file".to_string();
+        h.text.raw[8] = format!(
+            "LightTools ray file v{}.{}, length unit {}, origin ({}, {}, {})",
+            self.major_version,
+            self.minor_version,
+            match self.length_unit {
+                0 => "system",
+                1 => "mm",
+                2 => "cm",
+                3 => "m",
+                4 => "inch",
+                5 => "ft",
+                6 => "µm",
+                7 => "nm",
+                _ => "?",
+            },
+            self.origin[0],
+            self.origin[1],
+            self.origin[2]
+        );
+        h.columns = columns_from_flags(&flags, 0);
+        h.ray_start = LT_HEADER_SIZE;
+        h.n_rays = file_size.map(|s| self.ray_count_for_size(s)).unwrap_or(0);
+        h
     }
 
     /// Bytes per record: 28, or 32 with a wavelength.
@@ -238,6 +314,16 @@ pub struct LightToolsFile {
 }
 
 impl LightToolsFile {
+    /// The file as a TM-25 header and rays, ready for [`crate::write_tm25`]
+    /// or any TM-25 consumer. See [`LightToolsHeader::to_tm25_header`].
+    pub fn to_tm25(&self, name: &str) -> (Header, Vec<Ray>) {
+        let size = self.header.file_size_for(self.rays.len() as u64);
+        (
+            self.header.to_tm25_header(name, Some(size)),
+            self.rays.clone(),
+        )
+    }
+
     pub fn parse(bytes: &[u8]) -> Result<Self> {
         let header = LightToolsHeader::parse(bytes)?;
         if header.far_field {
