@@ -28,6 +28,15 @@
 //! records with CIE X Y Z in place of the flux), far-field files without
 //! start points, and version 3 with Stokes parameters.
 //!
+//! **What a TM-25 → LightTools → TM-25 round trip keeps and loses.** Kept:
+//! start point, direction and flux of every ray, the total flux, and a
+//! wavelength per ray when the source has one (identifier 2). Lost, because
+//! the LightTools record has no place for them: a shared spectral table
+//! (identifier 3), several tables with a per-ray index (identifier 4), the
+//! tristimulus and Stokes columns, user-defined columns, the wavelength
+//! bounds, the creation date and the nine description strings. Geometry,
+//! far field and irradiance survive unchanged; the spectrum does not.
+//!
 //! A radiometric TM-25 file becomes a
 //! radiometric LightTools file; a photometric-only file a photometric one.
 //! The wavelength column is written when the TM-25 file carries one per ray

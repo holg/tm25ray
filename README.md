@@ -54,6 +54,9 @@ build also runs inside the eulumdat-rs editor at iesna.eu/?wasm=tm25.
   wavelength per ray when the file has one, verified against the C++
   reference's reader; `LightToolsFile` reads it back, and
   `to_tm25_header` lets a TM-25 streaming pipeline read `.ray` files as is.
+  Rays and flux survive the round trip; a shared spectral table, tristimulus
+  or Stokes columns and the description strings do not, since the LightTools
+  record has no place for them.
 - **Flux-preserving subsampling** — `subsample` (Floyd) and a streaming
   `Reservoir`; the kept rays are rescaled so their flux still sums to the
   file total. Deterministic per seed, built-in PRNG.
