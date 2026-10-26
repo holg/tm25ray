@@ -337,7 +337,7 @@ mod tests {
         assert_eq!(lines[3], "continuous\t");
         assert_eq!(lines[4], "radiometric\t");
         assert_eq!(lines[5], "220.0000\t0.0100");
-        assert!(lines.iter().any(|l| *l == "266.0000\t1.0000"));
+        assert!(lines.contains(&"266.0000\t1.0000"));
         assert_eq!(lines.len(), 5 + 51 + 1);
 
         // Sampler: a table with two equal triangles must split 50/50 and
