@@ -2,9 +2,12 @@
 //! LightTools, written here from a TM-25 ray set so a file inspected or
 //! subsampled with this crate can go straight into an illumination design.
 //!
-//! The layout follows the LightTools documentation as implemented in the
-//! C++ reference `TM25RaySetTools` (`LightToolsBinary.cpp`, Unlicense), and
-//! the TM-25 mapping follows its `TM25ToLightToolsBinary`:
+//! The layout follows the LightTools documentation (checked against the
+//! vendor's own description of the binary format in October 2026) as
+//! implemented in the C++ reference `TM25RaySetTools`
+//! (`LightToolsBinary.cpp`, Unlicense), and the TM-25 mapping follows its
+//! `TM25ToLightToolsBinary`. A file written here was loaded by LightTools
+//! with the expected power, ray count and bounding box:
 //!
 //! | Offset | Content |
 //! |---|---|
@@ -18,7 +21,14 @@
 //! | 44 | records of 7 f32 (`x y z kx ky kz flux`), 8 with the wavelength in nm |
 //! | end | the 7 ASCII bytes `LTRFEND` |
 //!
-//! Everything is little-endian. A radiometric TM-25 file becomes a
+//! Everything is little-endian. LightTools treats the per-ray value as a
+//! *relative* flux and scales the set to the header total, so the absolute
+//! fluxes written here (which sum to that total) are consistent either way.
+//! Not written or read: the tristimulus colour mode (colour info 1, 36-byte
+//! records with CIE X Y Z in place of the flux), far-field files without
+//! start points, and version 3 with Stokes parameters.
+//!
+//! A radiometric TM-25 file becomes a
 //! radiometric LightTools file; a photometric-only file a photometric one.
 //! The wavelength column is written when the TM-25 file carries one per ray
 //! (spectral identifier 2), which LightTools only accepts with radiometric
