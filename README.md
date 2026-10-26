@@ -56,7 +56,10 @@ build also runs inside the eulumdat-rs editor at iesna.eu/?wasm=tm25.
   `to_tm25_header` lets a TM-25 streaming pipeline read `.ray` files as is.
   Rays and flux survive the round trip; a shared spectral table, tristimulus
   or Stokes columns and the description strings do not, since the LightTools
-  record has no place for them.
+  record has no place for them. The spectrum travels beside the rays as a
+  LightTools `.sre` file (`write_sre`), where it stays reassignable; a
+  wavelength per ray sampled from the table (`write_lighttools_sampled`) is
+  the explicit alternative for spatially varying spectra.
 - **Flux-preserving subsampling** — `subsample` (Floyd) and a streaming
   `Reservoir`; the kept rays are rescaled so their flux still sums to the
   file total. Deterministic per seed, built-in PRNG.

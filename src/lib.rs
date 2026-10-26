@@ -57,8 +57,9 @@ pub use header::{
     SpectralTable, TextFields, FIXED_HEADER_SIZE, MAGIC, VERSION_2013,
 };
 pub use lighttools::{
-    is_lighttools, to_lighttools_bytes, write_lighttools, LightToolsFile, LightToolsHeader,
-    LIGHTTOOLS_VERSION_TAG,
+    is_lighttools, spectrum_from_rays, to_lighttools_bytes, to_lighttools_bytes_sampled,
+    write_lighttools, write_lighttools_sampled, write_sre, LightToolsFile, LightToolsHeader,
+    SpectrumSampler, LIGHTTOOLS_VERSION_TAG,
 };
 #[cfg(feature = "mmap")]
 pub use mmap::Tm25Mmap;
@@ -320,6 +321,68 @@ mod tests {
         assert_eq!(th_p.flux_kind(), FluxKind::Photometric);
         assert_eq!(th_p.luminous_flux_lm, 12.0);
         assert_eq!(th_p.spectral_id, SpectralId::None);
+    }
+
+    /// `.sre` has the vendor layout; the sampler reproduces the table; the
+    /// sampled export carries a wavelength per ray inside the table's range;
+    /// the ray histogram recovers the spectrum from such rays.
+    #[test]
+    fn lighttools_spectrum_companions() {
+        let h = header_uv(); // 51 points 220..320 nm, peak 100 at 266 nm
+        let sre = write_sre(h.shared_spectrum().unwrap(), "UV-C sample");
+        let lines: Vec<&str> = sre.split("\r\n").collect();
+        assert_eq!(lines[0], "#\tUV-C sample");
+        assert_eq!(lines[1], "dfat 1.0\t");
+        assert_eq!(lines[2], "dataname:\tUV-C sample");
+        assert_eq!(lines[3], "continuous\t");
+        assert_eq!(lines[4], "radiometric\t");
+        assert_eq!(lines[5], "220.0000\t0.0100");
+        assert!(lines.iter().any(|l| *l == "266.0000\t1.0000"));
+        assert_eq!(lines.len(), 5 + 51 + 1);
+
+        // Sampler: a table with two equal triangles must split 50/50 and
+        // stay inside the range; a flat table is uniform.
+        let flat = SpectralTable {
+            wavelengths_nm: vec![400.0, 700.0],
+            values: vec![1.0, 1.0],
+        };
+        let s = SpectrumSampler::new(&flat).unwrap();
+        assert!((s.sample(0.0) - 400.0).abs() < 1e-3);
+        assert!((s.sample(0.5) - 550.0).abs() < 1e-3);
+        let peaked = SpectralTable {
+            wavelengths_nm: vec![400.0, 450.0, 500.0],
+            values: vec![0.0, 1.0, 0.0],
+        };
+        let s = SpectrumSampler::new(&peaked).unwrap();
+        let mut rng = Rng64::new(5);
+        let n = 100_000;
+        let below = (0..n).filter(|_| s.sample(rng.next_f64()) < 450.0).count();
+        assert!((below as f64 / n as f64 - 0.5).abs() < 0.01, "{below}");
+        // Linear density 0→1 on [400, 450]: median at 400 + 50/√2.
+        let mut xs: Vec<f32> = (0..n).map(|_| s.sample(rng.next_f64() * 0.5)).collect();
+        xs.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        assert!(
+            (xs[n / 2] - (400.0 + 50.0 / 2f32.sqrt())).abs() < 0.5,
+            "{}",
+            xs[n / 2]
+        );
+
+        // Sampled export of the UV header: 32-byte records, λ within range.
+        let rays = lambertian_rays(2_000, 0.051 / 2_000.0, 3);
+        let bytes = to_lighttools_bytes_sampled(&h, &rays, 1).unwrap();
+        let f = LightToolsFile::parse(&bytes).unwrap();
+        assert!(f.header.per_ray_wavelength);
+        assert_eq!(f.rays.len(), 2_000);
+        assert!(f
+            .rays
+            .iter()
+            .all(|r| (220.0..=320.0).contains(&r.wavelength_nm.unwrap())));
+        assert_eq!(to_lighttools_bytes_sampled(&h, &rays, 1).unwrap(), bytes);
+        // Histogram of those rays peaks where the table does.
+        let hist = spectrum_from_rays(&f.rays, FluxKind::Radiometric, 4.0).unwrap();
+        assert_eq!(hist.peak().map(|p| p.0.round()), Some(266.0));
+        // No table, or photometric only: refused.
+        assert!(to_lighttools_bytes_sampled(&header_luxeon(), &rays, 1).is_err());
     }
 
     /// LightTools has no photometric + spectral combination, and a shared

@@ -47,7 +47,9 @@
 use std::io::Write;
 
 use crate::error::{Result, Tm25Error};
-use crate::header::{columns_from_flags, FluxKind, Header, KnownDataFlags, SpectralId};
+use crate::header::{
+    columns_from_flags, FluxKind, Header, KnownDataFlags, SpectralId, SpectralTable,
+};
 use crate::ray::Ray;
 
 /// Magic at offset 0.
@@ -387,4 +389,157 @@ impl LightToolsFile {
             .collect();
         Ok(Self { header, rays })
     }
+}
+
+// ---------------------------------------------------------------------------
+// Spectrum: LightTools .sre, histogram from rays, sampled wavelengths
+// ---------------------------------------------------------------------------
+
+/// A LightTools `.sre` spectral distribution file for a spectral table: the
+/// text format vendors ship next to their ray files (`dfat 1.0`, a data
+/// name, `continuous`, `radiometric`, then tab-separated wavelength and
+/// value pairs normalised to a peak of 1, CRLF line ends). This is the
+/// companion to a `.ray` exported without colour information: LightTools
+/// users assign the spectrum to the ray data source and can still change
+/// it later, which per-ray wavelengths would not allow.
+pub fn write_sre(t: &SpectralTable, name: &str) -> String {
+    let peak = t.values.iter().cloned().fold(0.0f32, f32::max);
+    let scale = if peak > 0.0 { 1.0 / peak } else { 1.0 };
+    let name = name.replace(['\r', '\n', '\t'], " ");
+    let mut s = String::with_capacity(64 + t.len() * 18);
+    s.push_str(&format!(
+        "#\t{name}\r\ndfat 1.0\t\r\ndataname:\t{name}\r\ncontinuous\t\r\nradiometric\t\r\n"
+    ));
+    for (w, v) in t.wavelengths_nm.iter().zip(&t.values) {
+        s.push_str(&format!("{w:.4}\t{:.4}\r\n", v * scale));
+    }
+    s
+}
+
+/// Flux-weighted spectrum of rays that carry a wavelength each (spectral
+/// identifier 2), binned to `bin_nm`: a [`SpectralTable`] with the bin
+/// centres and the flux per bin, so such a file gets a spectrum to show and
+/// to write as `.sre`. `None` when no ray has a wavelength.
+pub fn spectrum_from_rays<'a, I: IntoIterator<Item = &'a Ray>>(
+    rays: I,
+    kind: FluxKind,
+    bin_nm: f32,
+) -> Option<SpectralTable> {
+    let bin = if bin_nm > 0.0 { bin_nm } else { 5.0 };
+    let mut sums: std::collections::BTreeMap<i64, f64> = std::collections::BTreeMap::new();
+    for r in rays {
+        let Some(w) = r.wavelength_nm else { continue };
+        if !w.is_finite() {
+            continue;
+        }
+        *sums.entry((w / bin).floor() as i64).or_default() += r.flux(kind) as f64;
+    }
+    let (&lo, _) = sums.first_key_value()?;
+    let (&hi, _) = sums.last_key_value()?;
+    let mut t = SpectralTable::default();
+    for k in lo..=hi {
+        t.wavelengths_nm.push((k as f32 + 0.5) * bin);
+        t.values.push(sums.get(&k).copied().unwrap_or(0.0) as f32);
+    }
+    Some(t)
+}
+
+/// Draws wavelengths distributed like a spectral table, treating it as a
+/// piecewise-linear density between its points.
+#[derive(Clone, Debug)]
+pub struct SpectrumSampler {
+    w: Vec<f64>,
+    v: Vec<f64>,
+    /// Cumulative area up to each interval end, normalised to 1.
+    cdf: Vec<f64>,
+}
+
+impl SpectrumSampler {
+    /// `None` for a table with fewer than two points or no positive values.
+    pub fn new(t: &SpectralTable) -> Option<Self> {
+        if t.len() < 2 || t.wavelengths_nm.len() != t.values.len() {
+            return None;
+        }
+        let w: Vec<f64> = t.wavelengths_nm.iter().map(|x| *x as f64).collect();
+        let v: Vec<f64> = t.values.iter().map(|x| (*x as f64).max(0.0)).collect();
+        let mut cdf = Vec::with_capacity(w.len() - 1);
+        let mut acc = 0.0;
+        for i in 0..w.len() - 1 {
+            acc += (v[i] + v[i + 1]) * 0.5 * (w[i + 1] - w[i]).max(0.0);
+            cdf.push(acc);
+        }
+        if acc <= 0.0 {
+            return None;
+        }
+        for c in &mut cdf {
+            *c /= acc;
+        }
+        Some(Self { w, v, cdf })
+    }
+
+    /// Wavelength in nm for a uniform `u` in `[0, 1)`.
+    pub fn sample(&self, u: f64) -> f32 {
+        let u = u.clamp(0.0, 1.0 - 1e-12);
+        let i = self
+            .cdf
+            .partition_point(|c| *c <= u)
+            .min(self.cdf.len() - 1);
+        let c0 = if i == 0 { 0.0 } else { self.cdf[i - 1] };
+        let span = (self.cdf[i] - c0).max(1e-300);
+        // Position within the interval, inverting the linear density a→b.
+        let t = ((u - c0) / span).clamp(0.0, 1.0);
+        let (a, b) = (self.v[i], self.v[i + 1]);
+        let x = if (a - b).abs() < 1e-12 * (a + b).max(1e-300) {
+            t
+        } else {
+            // F(x) = (a x + (b - a) x²/2) / ((a + b)/2) = t  →  solve for x.
+            let s = (a + b) * 0.5;
+            let disc = (a * a + 2.0 * (b - a) * s * t).max(0.0);
+            ((disc.sqrt() - a) / (b - a)).clamp(0.0, 1.0)
+        };
+        (self.w[i] + (self.w[i + 1] - self.w[i]) * x) as f32
+    }
+}
+
+/// Write a LightTools file **with a wavelength per ray drawn from the
+/// file's shared spectral table** (spectral identifier 3): colour info 2,
+/// radiometric flux. The spectrum is then hard-wired into the rays in
+/// LightTools and cannot be reassigned there, which is why the plain export
+/// plus a `.sre` is the default and this is the option for sources whose
+/// spectrum varies over position and angle. Deterministic for a given
+/// `seed`. Errors when the file has no table or no radiant flux.
+pub fn write_lighttools_sampled<W: Write, I: IntoIterator<Item = Ray>>(
+    w: W,
+    h: &Header,
+    rays: I,
+    seed: u64,
+) -> Result<u64> {
+    let table = h.shared_spectrum().ok_or_else(|| {
+        Tm25Error::InvalidHeader("no shared spectral table to sample from".into())
+    })?;
+    let sampler = SpectrumSampler::new(table)
+        .ok_or_else(|| Tm25Error::InvalidHeader("spectral table has no usable values".into()))?;
+    if !h.flags.radiant_flux {
+        return Err(Tm25Error::InvalidHeader(
+            "LightTools takes a wavelength per ray only with radiant flux".into(),
+        ));
+    }
+    let lt = LightToolsHeader {
+        per_ray_wavelength: true,
+        ..LightToolsHeader::from_tm25(h)?
+    };
+    let mut rng = crate::sample::Rng64::new(seed);
+    write_lighttools(
+        w,
+        &lt,
+        rays.into_iter()
+            .map(move |r| r.with_wavelength(sampler.sample(rng.next_f64()))),
+    )
+}
+
+/// In-memory form of [`write_lighttools_sampled`].
+pub fn to_lighttools_bytes_sampled(h: &Header, rays: &[Ray], seed: u64) -> Result<Vec<u8>> {
+    let mut out = Vec::with_capacity(LT_HEADER_SIZE + rays.len() * 32 + LT_END.len());
+    write_lighttools_sampled(&mut out, h, rays.iter().copied(), seed)?;
+    Ok(out)
 }

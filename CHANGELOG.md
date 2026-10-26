@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.2.3] - 2026-10-26
+
+- **LightTools spectrum companions.** `write_sre` writes the LightTools
+  `.sre` spectral distribution file from a spectral table, in the layout
+  vendors ship (peak-normalised, CRLF), so a `.ray` exported without colour
+  information gets its spectrum assigned in LightTools and stays
+  reassignable there. `spectrum_from_rays` bins a flux-weighted spectrum
+  from per-ray wavelengths. `write_lighttools_sampled` /
+  `to_lighttools_bytes_sampled` are the explicit second option: a
+  wavelength per ray drawn from the shared table (`SpectrumSampler`,
+  piecewise-linear density, deterministic per seed), for sources whose
+  spectrum varies over position and angle. The converter example writes
+  `.sre` when the output name ends in `.sre`, and takes `--sampled`.
+
 ## [0.2.2] - 2026-10-26
 
 - **LightTools import.** `LightToolsHeader::to_tm25_header` synthesises a
