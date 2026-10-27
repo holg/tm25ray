@@ -69,8 +69,8 @@ pub use lighttools::{
 };
 pub use luminance::{image_axes, lambertian_luminance, luminance_map, LuminanceMap};
 pub use mix::{
-    combine_spectra, fit_weights, mix, table_integral, table_value_at, weights_for_flux_fractions,
-    Channel, MixMode,
+    combine_spectra, fit_weights, mix, mixed_spectrum, mixed_totals, table_integral,
+    table_value_at, weights_for_flux_fractions, Channel, MixMode,
 };
 #[cfg(feature = "mmap")]
 pub use mmap::Tm25Mmap;

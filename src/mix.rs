@@ -187,6 +187,43 @@ fn radiant_power(c: &Channel) -> Option<f64> {
     Some(lm * ratio * c.weight)
 }
 
+/// The spectrum a [`MixMode::Shared`] mix of these channels gets, without
+/// touching the rays: for a live preview while weights change. `None` when
+/// a channel lacks a spectrum or radiometric information.
+pub fn mixed_spectrum(channels: &[Channel]) -> Option<SpectralTable> {
+    let mut pairs = Vec::with_capacity(channels.len());
+    for c in channels {
+        pairs.push((c.spectrum()?, radiant_power(c)?));
+    }
+    combine_spectra(&pairs)
+}
+
+/// Weighted totals of the channels: `(lumens, watts)`, each 0 when a
+/// channel cannot provide it.
+pub fn mixed_totals(channels: &[Channel]) -> (f64, f64) {
+    let lm = if channels.iter().all(|c| c.header.flags.luminous_flux) {
+        channels
+            .iter()
+            .map(|c| {
+                c.rays
+                    .iter()
+                    .map(|r| r.luminous_flux_lm.unwrap_or(0.0) as f64)
+                    .sum::<f64>()
+                    * c.weight
+            })
+            .sum()
+    } else {
+        0.0
+    };
+    let w = channels
+        .iter()
+        .map(radiant_power)
+        .collect::<Option<Vec<_>>>()
+        .map(|v| v.iter().sum())
+        .unwrap_or(0.0);
+    (lm, w)
+}
+
 /// Combine channels into one ray set. Rays are concatenated with their flux
 /// scaled by the channel weight; the result is not subsampled.
 pub fn mix(channels: &[Channel], mode: MixMode) -> Result<(Header, Vec<Ray>)> {
