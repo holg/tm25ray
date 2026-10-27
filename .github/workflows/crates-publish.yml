@@ -1,0 +1,43 @@
+# Publish tm25ray to crates.io when a version tag is pushed (or by hand).
+# Needs the repository secret CARGO_REGISTRY_TOKEN, as in the sibling repos.
+name: Publish to crates.io
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  publish:
+    name: Publish tm25ray
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Tag matches Cargo.toml version
+        if: github.ref_type == 'tag'
+        run: |
+          v=$(grep -m1 '^version' Cargo.toml | sed 's/.*"\(.*\)"/\1/')
+          [ "${GITHUB_REF_NAME}" = "v$v" ] || { echo "tag ${GITHUB_REF_NAME} but Cargo.toml says $v"; exit 1; }
+
+      - name: Tests
+        run: cargo test --all-features
+
+      - name: Publish
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          cargo publish 2>&1 | tee publish.log || {
+            if grep -q "already uploaded\|already exists" publish.log; then
+              echo "This version is already on crates.io, nothing to do."
+            else
+              exit 1
+            fi
+          }

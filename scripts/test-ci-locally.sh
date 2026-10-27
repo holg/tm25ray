@@ -83,6 +83,5 @@ else
 fi
 
 echo -e "\n${GREEN}=== All CI checks passed ===${NC}"
-echo -e "To release:"
+echo -e "To release (CI publishes to crates.io on the tag):"
 echo -e "  ${YELLOW}git tag v$version && git push origin main v$version${NC}"
-echo -e "  ${YELLOW}cargo publish${NC}"
