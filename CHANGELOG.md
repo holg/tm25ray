@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- **Luminance map.** `luminance::luminance_map` implements the estimator
+  of `docs/luminance.md`: rays inside an acceptance cone around a view
+  direction, start points projected onto the image plane, flux per pixel
+  divided by pixel area and cone solid angle, no extra cosine. Returns a
+  `LuminanceMap` with the image axes, pixel size (grown to a cap), peak,
+  mean over lit pixels and rays per lit pixel for the noise. A test checks
+  the Lambertian ground truth from 0°, 45° and 70°; the 1 M-ray sample file
+  reads 318 310 W/(sr·m²) within the reported noise.
+  `examples/tm25_luminance.rs` prints a map and an ASCII picture.
+
 ## [0.2.4] - 2026-10-27
 
 - **Quality report.** `quality::QualityAccumulator` sees every ray once

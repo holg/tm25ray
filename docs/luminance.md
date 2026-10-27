@@ -1,10 +1,12 @@
 # Luminance from a ray file
 
-> Status (2026-09-28): method notes, not yet implemented in `tm25ray`, which
-> currently computes far-field intensity only (`src/farfield.rs`). The numbers
-> below come from a numerical check against an analytic emitter, described at
-> the end, so the method is verified even though the crate does not ship it.
-> The emitter is available as a file to test other software against:
+> Status (2026-10-27): implemented as `tm25ray::luminance::luminance_map`
+> (`src/luminance.rs`) and shown live in the viewer's camera view as a
+> luminance map with a pixel-size control. `examples/tm25_luminance.rs`
+> prints a map from any direction. The numbers below come from the
+> numerical check against the analytic emitter described at the end; the
+> crate's test repeats it from three directions. The emitter is available
+> as a file to test other software against:
 > [`sample/lambertian_1mm_1M.TM25RAY`](https://holg.github.io/tm25ray/sample/lambertian_1mm_1M.TM25RAY).
 
 ## Why ray files can answer this at all

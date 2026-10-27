@@ -97,6 +97,14 @@ svg.chart { width: 100%; height: auto; background: #0b0d12; border-radius: 6px; 
     <label><input id="show_camera_view" type="checkbox"> Camera view (near-field image)</label>
     <label class="block"><span id="camera_cone_label">Acceptance cone ±8°</span>
       <input id="camera_cone" type="range" min="1" max="30" step="1"></label>
+    <label class="block"><span id="lum_pixel_label">Luminance pixel 0.050 mm</span>
+      <input id="lum_pixel" type="range" min="-2.3" max="0" step="0.05"></label>
+    <div id="luminance" style="display:none;">
+      <div id="lum_title" class="eyebrow sub">Luminance map</div>
+      <canvas id="lum_canvas" style="width:100%; height:auto; display:block; margin-top:4px; border-radius:6px; background:#000; image-rendering:pixelated;"></canvas>
+      <div class="spread dim tiny"><span>0</span><span id="lum_peak"></span></div>
+      <div id="lum_info" class="dim small"></div>
+    </div>
     <div id="camview" class="dim small"></div>
     <hr>
     <label><input id="show_plane" type="checkbox"> Irradiance plane (near field)</label>
@@ -213,7 +221,7 @@ const DEFAULTS = {
   display_count: 50000, ray_length_mm: 3.0, show_rays: true, show_points: true, show_solid: false,
   solid_scale_mm: 8.0, point_size_mm: 0.01, color_mode: "gamma", seed: 1, reset_camera: 0,
   show_plane: false, plane_z_mm: 0.1, plane_size_mm: 0.0, plane_cells: 96,
-  show_camera_view: false, camera_cone_deg: 8.0,
+  show_camera_view: false, camera_cone_deg: 8.0, luminance_pixel_mm: 0.05,
 };
 let settings = { ...DEFAULTS };
 try { const saved = JSON.parse(localStorage.getItem("tm25_settings") || "null"); if (saved && typeof saved === "object") settings = { ...DEFAULTS, ...saved, reset_camera: 0 }; } catch (_) {}
@@ -229,6 +237,7 @@ function syncControls() {
   $("color_mode").value = settings.color_mode;
   $("show_camera_view").checked = settings.show_camera_view;
   $("camera_cone").value = settings.camera_cone_deg; $("camera_cone_label").textContent = `Acceptance cone ±${settings.camera_cone_deg.toFixed(0)}°`;
+  $("lum_pixel").value = Math.log10(settings.luminance_pixel_mm); $("lum_pixel_label").textContent = `Luminance pixel ${settings.luminance_pixel_mm.toFixed(3)} mm`;
   $("show_plane").checked = settings.show_plane;
   $("plane_z").value = Math.log10(settings.plane_z_mm); $("plane_z_label").textContent = fmtPlaneZ(settings.plane_z_mm);
   $("plane_size").value = settings.plane_size_mm > 0 ? Math.max(0, Math.log10(settings.plane_size_mm)) : 0;
@@ -243,6 +252,7 @@ $("point_size").addEventListener("input", (e) => upd((s) => s.point_size_mm = pa
 for (const k of ["show_rays", "show_points", "show_solid", "show_camera_view", "show_plane"]) $(k).addEventListener("change", (e) => upd((s) => s[k] = e.target.checked));
 $("color_mode").addEventListener("change", (e) => upd((s) => s.color_mode = e.target.value));
 $("camera_cone").addEventListener("input", (e) => upd((s) => s.camera_cone_deg = parseFloat(e.target.value)));
+$("lum_pixel").addEventListener("input", (e) => upd((s) => s.luminance_pixel_mm = Math.pow(10, parseFloat(e.target.value))));
 $("plane_z").addEventListener("input", (e) => upd((s) => s.plane_z_mm = Math.pow(10, parseFloat(e.target.value))));
 $("plane_size").addEventListener("input", (e) => { const v = parseFloat(e.target.value); upd((s) => s.plane_size_mm = v <= 0 ? 0 : Math.pow(10, v)); });
 $("plane_cells").addEventListener("change", (e) => upd((s) => s.plane_cells = parseInt(e.target.value, 10) || 96));
@@ -281,7 +291,32 @@ async function fetchAsFile(url) {
 // ---------------------------------------------------------------------------
 // Status ← localStorage, polled every 500 ms.
 // ---------------------------------------------------------------------------
-let lastStatus = "", lastExports = "", lastCam = "", exposureS = 1.0;
+let lastStatus = "", lastExports = "", lastCam = "", lastLum = "", exposureS = 1.0;
+
+// Luminance map from the viewer (localStorage "tm25_luminance"): paint the
+// row-major values with the irradiance colour ramp, row 0 at the bottom.
+function renderLuminance(m) {
+  const box = $("luminance"), cv = $("lum_canvas");
+  if (!m || !m.width || !m.height || !settings.show_camera_view) { box.style.display = "none"; return; }
+  const w = m.width, h = m.height, peak = Number(m.peak || 0), vals = m.values || [];
+  cv.width = w; cv.height = h;
+  const ctx = cv.getContext("2d"); const img = ctx.createImageData(w, h); const d = img.data;
+  const stops = [[0, 0, 255], [0, 255, 255], [0, 255, 0], [255, 255, 0], [255, 0, 0]];
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const v = Number(vals[y * w + x] || 0), i = ((h - 1 - y) * w + x) * 4;
+    d[i + 3] = 255;
+    if (v <= 0 || peak <= 0) continue;
+    const t = Math.min(1, v / peak) * 4, k = Math.min(3, Math.floor(t)), f = t - k;
+    for (let c = 0; c < 3; c++) d[i + c] = stops[k][c] + (stops[k + 1][c] - stops[k][c]) * f;
+  }
+  ctx.putImageData(img, 0, 0);
+  const fmt = (v) => (v >= 1e5 ? Number(v).toExponential(3) : Number(v).toFixed(0));
+  const px = Number(m.pixel_mm || 0), rpp = Number(m.rays_per_lit_pixel || 0);
+  $("lum_title").textContent = `Luminance map · ${m.unit || ""}`;
+  $("lum_peak").textContent = `peak ${fmt(peak)} ${m.unit || ""}`;
+  $("lum_info").textContent = `${w} × ${h} px of ${px.toFixed(3)} mm (${(w * px).toFixed(2)} × ${(h * px).toFixed(2)} mm) · mean over lit pixels ${fmt(m.mean_lit || 0)} ${m.unit || ""} · ${rpp.toFixed(0)} rays per pixel, ≈ ${(100 / Math.sqrt(Math.max(rpp, 1e-9))).toFixed(0)} % noise`;
+  box.style.display = "block";
+}
 const fmt4 = (v) => (v == null ? "–" : Number(v).toFixed(4));
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 function poly(points) { return points.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(" "); }
@@ -425,8 +460,10 @@ function renderExports(e) {
 }
 
 setInterval(() => {
-  let p, cam, ex, st;
-  try { p = localStorage.getItem("tm25_progress"); cam = localStorage.getItem("tm25_camera_view"); ex = localStorage.getItem("tm25_exports"); st = localStorage.getItem("tm25_status"); } catch (_) { return; }
+  let p, cam, ex, st, lum;
+  try { p = localStorage.getItem("tm25_progress"); cam = localStorage.getItem("tm25_camera_view"); ex = localStorage.getItem("tm25_exports"); st = localStorage.getItem("tm25_status"); lum = localStorage.getItem("tm25_luminance"); } catch (_) { return; }
+  if ((lum || "") !== lastLum) { lastLum = lum || ""; try { renderLuminance(lum ? JSON.parse(lum) : null); } catch (_) {} }
+  else if (!settings.show_camera_view) $("luminance").style.display = "none";
   if (p != null && $("info").style.display === "none") $("progress").textContent = `streaming ${p}`;
   if (cam != null && cam !== lastCam) {
     lastCam = cam;

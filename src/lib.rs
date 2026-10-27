@@ -1,6 +1,7 @@
 //! IES TM-25 ray files (`.TM25RAY`): zero-copy and streaming readers, a
 //! writer, flux-preserving subsampling, a far-field C/γ converter, a
-//! quality report ([`quality`]) and LightTools import/export ([`lighttools`]).
+//! luminance map ([`luminance`]), a quality report ([`quality`]) and
+//! LightTools import/export ([`lighttools`]).
 //!
 //! TM-25 describes a light source as individual rays (start point in mm,
 //! unit direction, flux) rather than an angular intensity table, so it is
@@ -43,6 +44,7 @@ pub mod error;
 pub mod farfield;
 pub mod header;
 pub mod lighttools;
+pub mod luminance;
 #[cfg(feature = "mmap")]
 pub mod mmap;
 pub mod quality;
@@ -62,6 +64,7 @@ pub use lighttools::{
     write_lighttools, write_lighttools_sampled, write_sre, LightToolsFile, LightToolsHeader,
     SpectrumSampler, LIGHTTOOLS_VERSION_TAG,
 };
+pub use luminance::{image_axes, lambertian_luminance, luminance_map, LuminanceMap};
 #[cfg(feature = "mmap")]
 pub use mmap::Tm25Mmap;
 pub use quality::{
@@ -387,6 +390,70 @@ mod tests {
         assert_eq!(hist.peak().map(|p| p.0.round()), Some(266.0));
         // No table, or photometric only: refused.
         assert!(to_lighttools_bytes_sampled(&header_luxeon(), &rays, 1).is_err());
+    }
+
+    /// The Lambertian ground truth: the map returns `Φ / (π A)` at every
+    /// interior pixel from any direction, within Monte-Carlo noise, with the
+    /// projected footprint shrinking by cos γ. No extra cosine anywhere.
+    #[test]
+    fn luminance_map_matches_lambertian_ground_truth() {
+        // lambertian_rays: 2 mm square at z = 0, cosine-weighted directions.
+        let n = 400_000;
+        let rays = lambertian_rays(n, 1.0 / n as f32, 21);
+        let expected = lambertian_luminance(1.0, 4.0); // 79 577 W/(sr·m²)
+        for (gamma_deg, cos_g) in [(0.0f32, 1.0f32), (45.0, 0.7071), (70.0, 0.342)] {
+            let g = gamma_deg.to_radians();
+            let dir = [g.sin(), 0.0, g.cos()];
+            let m = luminance_map(&rays, FluxKind::Radiometric, dir, 5.0, 0.25, 64).unwrap();
+            assert_eq!(m.pixel_mm, 0.25);
+            // Footprint: 2 mm × 2 mm. The view tilts in the xz-plane, so the
+            // horizontal image axis (e1) is y, 8 pixels, and the vertical one
+            // is the foreshortened x, 2 cos γ wide.
+            assert!((m.width as f32 - 8.0).abs() <= 1.0, "width {}", m.width);
+            let exp_h = (2.0 * cos_g / 0.25).round();
+            assert!(
+                (m.height as f32 - exp_h).abs() <= 1.0,
+                "height {} vs {exp_h} at γ={gamma_deg}",
+                m.height
+            );
+            // Interior pixels (skip the partially covered edge) average to the truth.
+            let mut sum = 0.0;
+            let mut cnt = 0;
+            for y in 1..m.height - 1 {
+                for x in 1..m.width - 1 {
+                    sum += m.get(x, y);
+                    cnt += 1;
+                }
+            }
+            let mean = sum / cnt as f64;
+            let noise = 1.0 / m.rays_per_lit_pixel.sqrt();
+            assert!(
+                (mean / expected - 1.0).abs() < 3.0 * noise / (cnt as f64).sqrt() + 0.02,
+                "γ={gamma_deg}: mean {mean:.0} vs {expected:.0}, noise {noise:.3}, pixels {cnt}"
+            );
+            assert_eq!(m.unit(), "W/(sr·m²)");
+            assert!(m.rays > 0 && m.peak > expected * 0.8);
+        }
+        // Caps: a 0.01 mm request on a 2 mm emitter grows to fit 32 pixels.
+        let m =
+            luminance_map(&rays, FluxKind::Radiometric, [0.0, 0.0, 1.0], 5.0, 0.01, 32).unwrap();
+        assert!(m.width <= 32 && m.height <= 32 && m.pixel_mm > 0.06);
+        // No ray towards −z: no map.
+        assert!(luminance_map(
+            &rays,
+            FluxKind::Radiometric,
+            [0.0, 0.0, -1.0],
+            5.0,
+            0.25,
+            64
+        )
+        .is_none());
+        // Image axes: a view along +z keeps x right and y up.
+        let (e1, e2) = image_axes([0.0, 0.0, 1.0]);
+        assert!(
+            (e1[0] - 1.0).abs() < 1e-6 && (e2[1] - 1.0).abs() < 1e-6,
+            "{e1:?} {e2:?}"
+        );
     }
 
     /// A clean synthetic file passes; every injected defect is reported
