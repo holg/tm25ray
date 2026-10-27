@@ -69,7 +69,7 @@ impl LuminanceMap {
 
 fn normalize(v: [f32; 3]) -> Option<[f32; 3]> {
     let n = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
-    if !(n > 0.0) || !n.is_finite() {
+    if !(n.is_finite() && n > 0.0) {
         return None;
     }
     Some([v[0] / n, v[1] / n, v[2] / n])

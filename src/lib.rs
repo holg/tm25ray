@@ -401,7 +401,8 @@ mod tests {
         let n = 400_000;
         let rays = lambertian_rays(n, 1.0 / n as f32, 21);
         let expected = lambertian_luminance(1.0, 4.0); // 79 577 W/(sr·m²)
-        for (gamma_deg, cos_g) in [(0.0f32, 1.0f32), (45.0, 0.7071), (70.0, 0.342)] {
+        for gamma_deg in [0.0f32, 45.0, 70.0] {
+            let cos_g = gamma_deg.to_radians().cos();
             let g = gamma_deg.to_radians();
             let dir = [g.sin(), 0.0, g.cos()];
             let m = luminance_map(&rays, FluxKind::Radiometric, dir, 5.0, 0.25, 64).unwrap();
