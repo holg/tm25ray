@@ -212,12 +212,14 @@ pub struct QualityAccumulator {
 impl QualityAccumulator {
     pub fn new(header: &Header) -> Self {
         let kind = header.flux_kind();
-        let mut s = QualityStats::default();
-        s.flux_header = header.total_flux(kind) as f64;
-        s.flux_min = f32::MAX;
-        s.flux_max = f32::MIN;
-        s.min = [f32::MAX; 3];
-        s.max = [f32::MIN; 3];
+        let s = QualityStats {
+            flux_header: header.total_flux(kind) as f64,
+            flux_min: f32::MAX,
+            flux_max: f32::MIN,
+            min: [f32::MAX; 3],
+            max: [f32::MIN; 3],
+            ..Default::default()
+        };
         Self {
             kind,
             header: header.clone(),
@@ -266,9 +268,9 @@ impl QualityAccumulator {
         if p.iter().any(|v| !v.is_finite()) {
             s.nan_position += 1;
         } else {
-            for i in 0..3 {
-                s.min[i] = s.min[i].min(p[i]);
-                s.max[i] = s.max[i].max(p[i]);
+            for (i, v) in p.iter().enumerate() {
+                s.min[i] = s.min[i].min(*v);
+                s.max[i] = s.max[i].max(*v);
             }
             let n = self.checked_positions as f64;
             if n >= 1000.0 {
@@ -287,8 +289,8 @@ impl QualityAccumulator {
                 }
             }
             self.checked_positions += 1;
-            for i in 0..3 {
-                self.sum_pos[i] += p[i] as f64;
+            for (acc, v) in self.sum_pos.iter_mut().zip(p) {
+                *acc += v as f64;
             }
             let n1 = self.checked_positions as f64;
             let c = [
@@ -574,7 +576,7 @@ impl QualityAccumulator {
                 ),
             });
         }
-        f.sort_by(|a, b| b.severity.cmp(&a.severity));
+        f.sort_by_key(|a| std::cmp::Reverse(a.severity));
         QualityReport {
             stats: s,
             findings: f,
