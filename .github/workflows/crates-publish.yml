@@ -34,10 +34,12 @@ jobs:
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: |
-          cargo publish 2>&1 | tee publish.log || {
-            if grep -q "already uploaded\|already exists" publish.log; then
+          set -o pipefail
+          # Log outside the checkout: a file in the tree makes cargo refuse to publish.
+          if ! cargo publish 2>&1 | tee /tmp/publish.log; then
+            if grep -q "already uploaded\|already exists" /tmp/publish.log; then
               echo "This version is already on crates.io, nothing to do."
             else
               exit 1
             fi
-          }
+          fi
