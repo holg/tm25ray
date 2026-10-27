@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.2.4] - 2026-10-27
+
+- **Quality report.** `quality::QualityAccumulator` sees every ray once
+  (streaming) and `finish()` gives a `QualityReport`: statistics plus
+  graded findings (error / warning / info) with stable codes. Checks flux
+  sum against the header, NaN, negative and zero fluxes, flux outliers,
+  non-unit and backward directions, start-point outliers and a µm-sized
+  extent, exact duplicate records, wavelengths outside the header bounds,
+  spectrum indices, header gaps, and a Monte-Carlo noise estimate for a
+  10° × 5° far-field bin. `to_text()` for a file; `verdict()` for a line.
+  `examples/tm25_quality.rs` reports on TM-25 and LightTools files and exits
+  non-zero on errors. ams OSRAM and Lumileds packages pass with notes only.
+
 ## [0.2.3] - 2026-10-26
 
 - **LightTools spectrum companions.** `write_sre` writes the LightTools

@@ -63,6 +63,10 @@ build also runs inside the eulumdat-rs editor at iesna.eu/?wasm=tm25.
 - **Flux-preserving subsampling** — `subsample` (Floyd) and a streaming
   `Reservoir`; the kept rays are rescaled so their flux still sums to the
   file total. Deterministic per seed, built-in PRNG.
+- **Quality report** — `QualityAccumulator` streams every ray once and
+  grades what it finds: flux balance, NaN and zero-flux rays, non-unit
+  directions, duplicates, outliers, wavelength bounds, header gaps, and the
+  Monte-Carlo noise a far-field bin will carry. Text report and verdict.
 - **Far field** — `FarField::from_rays(...)` bins directions into a C/γ grid
   with solid-angle normalisation (W/sr or cd), gives the azimuthal profile,
   half-intensity angle, forward fraction, bilinear sampling and a
@@ -140,6 +144,7 @@ cargo run --release --example tm25_bench -- file.TM25RAY  # timings per stage (s
 cargo run --release --example tm25_sample -- out.TM25RAY   # write a synthetic file to open
 cargo run --release --example tm25_lambertian -- out.TM25RAY # Lambertian ground truth for luminance checks
 cargo run --release --example tm25_to_lighttools -- in.TM25RAY out.ray [n_rays] # LightTools .ray, optionally subsampled; .ray in → TM-25 out
+cargo run --release --example tm25_quality -- file.TM25RAY                       # quality report, exit 1 on errors
 cargo run --release --example tm25_roundtrip -- file.TM25RAY # header parses and re-writes byte for byte
 ```
 

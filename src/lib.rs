@@ -1,6 +1,6 @@
 //! IES TM-25 ray files (`.TM25RAY`): zero-copy and streaming readers, a
-//! writer, flux-preserving subsampling, a far-field C/γ converter and an
-//! export to LightTools binary ray files ([`lighttools`]).
+//! writer, flux-preserving subsampling, a far-field C/γ converter, a
+//! quality report ([`quality`]) and LightTools import/export ([`lighttools`]).
 //!
 //! TM-25 describes a light source as individual rays (start point in mm,
 //! unit direction, flux) rather than an angular intensity table, so it is
@@ -45,6 +45,7 @@ pub mod header;
 pub mod lighttools;
 #[cfg(feature = "mmap")]
 pub mod mmap;
+pub mod quality;
 pub mod ray;
 pub mod reader;
 pub mod sample;
@@ -63,6 +64,9 @@ pub use lighttools::{
 };
 #[cfg(feature = "mmap")]
 pub use mmap::Tm25Mmap;
+pub use quality::{
+    quality_report, Finding, QualityAccumulator, QualityReport, QualityStats, Severity,
+};
 pub use ray::{direction_to_c_gamma, from_bevy, to_bevy, Ray, RayIter, RayLayout, RayView};
 pub use reader::{RayStream, Tm25File, Tm25Reader};
 pub use sample::{subsample, Reservoir, Rng64};
@@ -383,6 +387,97 @@ mod tests {
         assert_eq!(hist.peak().map(|p| p.0.round()), Some(266.0));
         // No table, or photometric only: refused.
         assert!(to_lighttools_bytes_sampled(&header_luxeon(), &rays, 1).is_err());
+    }
+
+    /// A clean synthetic file passes; every injected defect is reported
+    /// with the right code and severity, and the text report lists them.
+    #[test]
+    fn quality_report_finds_injected_defects() {
+        let h = header_uv();
+        let rays = lambertian_rays(20_000, 0.051 / 20_000.0, 4);
+        let clean = quality_report(&h, &rays);
+        assert_eq!(clean.errors(), 0, "{:?}", clean.findings);
+        assert_eq!(clean.warnings(), 0, "{:?}", clean.findings);
+        assert!(clean.stats.duplicates == 0 && clean.stats.position_outliers == 0);
+        assert!((clean.stats.flux_sum - 0.051).abs() < 1e-5);
+        // 20k rays: about 44 per bin at γ = 30°, 15 % noise, reported as info.
+        assert!(
+            (0.1..0.2).contains(&clean.far_field_noise),
+            "{}",
+            clean.far_field_noise
+        );
+        let codes = |r: &QualityReport| r.findings.iter().map(|f| f.code).collect::<Vec<_>>();
+        assert_eq!(codes(&clean), vec!["creation-method", "few-rays"]);
+
+        let mut bad = rays.clone();
+        bad[0].kx = 2.0; // not unit
+        bad[1].radiant_flux_w = Some(f32::NAN);
+        bad[2].radiant_flux_w = Some(-1e-6);
+        bad[3].radiant_flux_w = Some(0.0);
+        bad[4] = bad[5]; // duplicate
+        bad[5000].x = 500.0; // far outside the 2 mm square (outliers are judged after a 1000-ray warm-up)
+        bad[7].radiant_flux_w = Some(0.02); // one ray with 40 % of the flux
+        bad[8].kz = -bad[8].kz; // backwards
+        let mut h2 = h.clone();
+        h2.radiant_flux_w = 0.1; // header disagrees with the sum
+        let r = quality_report(&h2, &bad);
+        let c = codes(&r);
+        for code in [
+            "flux-mismatch",
+            "nan-records",
+            "negative-flux",
+            "zero-flux",
+            "flux-outlier",
+            "non-unit-direction",
+            "backward-rays",
+            "position-outliers",
+            "duplicates",
+        ] {
+            assert!(c.contains(&code), "missing {code} in {c:?}");
+        }
+        assert!(r.errors() >= 3);
+        assert!(r.verdict().contains("error"));
+        let text = r.to_text("bad.TM25RAY");
+        assert!(text.contains("[ERROR] flux-mismatch") && text.contains("Duplicates 1"));
+        // Findings are sorted by severity, errors first.
+        assert!(r
+            .findings
+            .windows(2)
+            .all(|w| w[0].severity >= w[1].severity));
+
+        // Wavelength bounds and spectrum index.
+        let mut flags = KnownDataFlags::radiometric();
+        flags.wavelength = true;
+        let mut h3 = Header::new(flags);
+        h3.spectral_id = SpectralId::PerRayWavelength;
+        h3.min_wavelength_nm = Some(400.0);
+        h3.max_wavelength_nm = Some(700.0);
+        h3.radiant_flux_w = 1.0;
+        let rays3: Vec<Ray> = lambertian_rays(1_000, 1e-3, 2)
+            .into_iter()
+            .enumerate()
+            .map(|(i, r)| r.with_wavelength(if i < 10 { 900.0 } else { 550.0 }))
+            .collect();
+        let r3 = quality_report(&h3, &rays3);
+        assert!(codes(&r3).contains(&"wavelength"));
+        assert_eq!(r3.stats.wavelength_out_of_bounds, 10);
+        // Few rays → noise info; µm-sized extent → warning.
+        let mut h4 = header_uv();
+        h4.radiant_flux_w = 1.0;
+        let rays4: Vec<Ray> = lambertian_rays(500, 1.0 / 500.0, 8)
+            .into_iter()
+            .map(|mut r| {
+                r.x *= 1000.0;
+                r.y *= 1000.0;
+                r
+            })
+            .collect();
+        let r4 = quality_report(&h4, &rays4);
+        assert!(
+            codes(&r4).contains(&"few-rays") && codes(&r4).contains(&"extent"),
+            "{:?}",
+            codes(&r4)
+        );
     }
 
     /// LightTools has no photometric + spectral combination, and a shared
