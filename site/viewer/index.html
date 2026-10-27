@@ -262,7 +262,9 @@ writeSettings(); syncControls();
 // ---------------------------------------------------------------------------
 // Files in: picker, drop, ?url=
 // ---------------------------------------------------------------------------
+let currentFile = null;
 function takeFile(file) {
+  currentFile = file;
   $("filename").textContent = file.name;
   $("progress").textContent = "";
   $("info").style.display = "none"; lastStatus = ""; lastExports = ""; $("exports").innerHTML = "";
@@ -425,7 +427,7 @@ function renderExports(e) {
       ${e.lighttools ? `<button id="dl_lighttools" title="LightTools binary ray file of the kept rays, flux rescaled to the file total; no colour information, assign the spectrum in LightTools">LightTools .ray</button>` : ""}
       ${e.sre ? `<button data-k="sre" data-ext="sre" title="The spectrum as a LightTools .sre spectral distribution file, to assign to the ray data source">LightTools .sre</button>` : ""}
       ${e.quality_txt ? `<button data-k="quality_txt" data-ext="quality.txt" title="The quality report as text">Quality report .txt</button>` : ""}
-      ${e.ldt ? `<a class="btn" href="/app/?wasm=tm25" title="A PDF report with diagrams, rendered in the editor (open the same file there)">PDF report in the editor</a>` : ""}
+      ${e.ldt ? `<button id="open_report" title="A PDF report with diagrams, rendered in the editor: takes this file along">PDF report in the editor</button>` : ""}
       ${e.lighttools_sampled ? `<button id="dl_lighttools_sampled" title="Second option: a wavelength per ray drawn from the spectral table. The spectrum is then hard-wired into the rays in LightTools and cannot be reassigned; for sources whose spectrum varies over position and angle">LightTools .ray + λ</button>` : ""}
     </div>
     <div class="dim tiny" style="margin-top:6px;">${lumens > 0 ? `lamp flux ${lumens.toFixed(2)} lm · ATLA carries the spectrum` : "radiometric file without lumens: intensities per kW, see report field"}</div>
@@ -435,6 +437,13 @@ function renderExports(e) {
     </div>
     <div class="dim tiny" style="margin-top:6px;">The goniometer replays ${esc(kept)} flux-weighted rays as the near-field source, so covers and reflectors see the real emitting area.</div>`;
   for (const b of box.querySelectorAll("button[data-k]")) b.addEventListener("click", () => { const c = e[b.dataset.k]; if (c) download(c, `${name}.${b.dataset.ext}`); });
+  // Hand the current file to the editor's viewer (same origin, same
+  // IndexedDB stash) and let it start by itself there.
+  const rep = $("open_report");
+  if (rep) rep.addEventListener("click", async () => {
+    if (currentFile) await window.tm25StashFile(currentFile, "file");
+    location.href = "/app/?wasm=tm25&autoload=1&name=" + encodeURIComponent(currentFile ? currentFile.name : "");
+  });
   // The LightTools file is binary, so the viewer stashes it in IndexedDB
   // under "lighttools" (next to the goniometer's "gonio"); take it, save it,
   // put it back so the button works again.
