@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## [0.2.5] - 2026-10-27
 
 - **Channel mixer.** `mix::mix` combines channel ray files (ams OSRAM's
   blue + yellow per white LED) into one TM-25 set: rays concatenated with
