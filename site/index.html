@@ -164,11 +164,21 @@ footer {
     <h4>Spectrum and safety</h4>
     <p>PPFD for horticultural sources, and ICNIRP actinic dose for UV emitters, from the header spectrum.</p>
   </div>
+  <div class="card">
+    <h4>Luminance map</h4>
+    <p>The near-field image from any direction, cd/m² or W/(sr·m²) per pixel, with the acceptance cone and pixel size as controls and the noise per pixel stated.</p>
+  </div>
+  <div class="card">
+    <h4>Quality report</h4>
+    <p>Flux balance, NaN and zero-flux rays, non-unit directions, duplicates, outliers, wavelength bounds: a verdict and a text report before the file goes into a simulation.</p>
+  </div>
 </div>
 
 <p style="margin-top:18px">
   The viewer exports what it computes as EULUMDAT, IES, ATLA XML with the
-  spectrum attached, or a relative <code>.spd</code>. Files of any size
+  spectrum attached, a relative <code>.spd</code>, or a LightTools ray file
+  with its <code>.sre</code> spectrum, and reads LightTools <code>.ray</code>
+  files back. Files of any size
   stream through the browser in slices; a 560 MB, 20-million-ray package
   opens without being loaded into memory.
 </p>
