@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- **Channel mixer.** `mix::mix` combines channel ray files (ams OSRAM's
+  blue + yellow per white LED) into one TM-25 set: rays concatenated with
+  per-channel weights, spectra combined by radiant power on a 1 nm grid
+  (identifier 3) or kept as tables with an index per ray (identifier 4).
+  `weights_for_flux_fractions` turns a vendor's per-bin flux split into
+  weights, `fit_weights` fits channels to a target spectrum by least
+  squares, and a per-channel spectrum override lets a bin's own spectra
+  replace the file tables. `photometry::v_lambda` (CIE V(λ), 5 nm) and
+  `luminous_efficacy_lm_per_w` give the watts behind binned lumens; the
+  quality report now flags header totals whose lm/W disagrees with the
+  file's spectrum (`lm-per-w`). `examples/tm25_mix.rs`. On the ams OSRAM
+  GW CSSRMU package the 2700, 3000, 3500 and 4000 K bins mix to 2743,
+  3068, 3388 and 3958 K with the vendor's fractions and spectra.
 - **Luminance map.** `luminance::luminance_map` implements the estimator
   of `docs/luminance.md`: rays inside an acceptance cone around a view
   direction, start points projected onto the image plane, flux per pixel

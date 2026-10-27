@@ -1,7 +1,8 @@
 //! IES TM-25 ray files (`.TM25RAY`): zero-copy and streaming readers, a
 //! writer, flux-preserving subsampling, a far-field C/γ converter, a
-//! luminance map ([`luminance`]), a quality report ([`quality`]) and
-//! LightTools import/export ([`lighttools`]).
+//! luminance map ([`luminance`]), a quality report ([`quality`]), a channel
+//! mixer ([`mod@mix`]) with V(λ) photometry ([`photometry`]), and LightTools
+//! import/export ([`lighttools`]).
 //!
 //! TM-25 describes a light source as individual rays (start point in mm,
 //! unit direction, flux) rather than an angular intensity table, so it is
@@ -45,8 +46,10 @@ pub mod farfield;
 pub mod header;
 pub mod lighttools;
 pub mod luminance;
+pub mod mix;
 #[cfg(feature = "mmap")]
 pub mod mmap;
+pub mod photometry;
 pub mod quality;
 pub mod ray;
 pub mod reader;
@@ -65,8 +68,13 @@ pub use lighttools::{
     SpectrumSampler, LIGHTTOOLS_VERSION_TAG,
 };
 pub use luminance::{image_axes, lambertian_luminance, luminance_map, LuminanceMap};
+pub use mix::{
+    combine_spectra, fit_weights, mix, table_integral, table_value_at, weights_for_flux_fractions,
+    Channel, MixMode,
+};
 #[cfg(feature = "mmap")]
 pub use mmap::Tm25Mmap;
+pub use photometry::{luminous_efficacy_lm_per_w, v_lambda, KM};
 pub use quality::{
     quality_report, Finding, QualityAccumulator, QualityReport, QualityStats, Severity,
 };
@@ -455,6 +463,193 @@ mod tests {
             (e1[0] - 1.0).abs() < 1e-6 && (e2[1] - 1.0).abs() < 1e-6,
             "{e1:?} {e2:?}"
         );
+    }
+
+    /// V(λ) peaks at 555 nm; a monochromatic line there has 683 lm/W, a
+    /// UV table essentially none; a photometric vendor header whose lm/W
+    /// disagrees with its own spectrum is flagged by the quality report.
+    #[test]
+    fn photometry_and_lm_per_w_check() {
+        assert_eq!(v_lambda(555.0), 1.0);
+        assert!((v_lambda(507.0) - 0.4456).abs() < 0.001); // between 0.4073 at 505 and 0.503 at 510
+        assert_eq!(v_lambda(300.0), 0.0);
+        let line = SpectralTable {
+            wavelengths_nm: vec![554.0, 555.0, 556.0],
+            values: vec![0.0, 1.0, 0.0],
+        };
+        let ler = luminous_efficacy_lm_per_w(&line).unwrap();
+        assert!((ler - 683.0).abs() < 1.0, "{ler}");
+        assert!(luminous_efficacy_lm_per_w(header_uv().shared_spectrum().unwrap()).unwrap() < 0.1);
+        // A yellow-ish table: header claims 311 lm/W, consistent → no finding;
+        // header claims 200 lm/W → warning.
+        let t = SpectralTable {
+            wavelengths_nm: (0..31).map(|i| 500.0 + 10.0 * i as f32).collect(),
+            values: (0..31)
+                .map(|i| {
+                    let d = (i as f32 - 12.0) / 7.0;
+                    100.0 * (-d * d).exp()
+                })
+                .collect(),
+        };
+        let ler = luminous_efficacy_lm_per_w(&t).unwrap();
+        let mut h = Header::new(KnownDataFlags::photometric());
+        h.spectral_id = SpectralId::SharedTable;
+        h.spectra = vec![t];
+        h.luminous_flux_lm = 100.0;
+        h.radiant_flux_w = (100.0 / ler) as f32;
+        let rays: Vec<Ray> = lambertian_rays(1_000, 1.0, 1)
+            .into_iter()
+            .map(|r| Ray::new(r.position(), r.direction()).with_luminous_flux(0.1))
+            .collect();
+        let ok = quality_report(&h, &rays);
+        assert!(
+            !ok.findings.iter().any(|f| f.code == "lm-per-w"),
+            "{:?}",
+            ok.findings
+        );
+        h.radiant_flux_w = 0.5;
+        let bad = quality_report(&h, &rays);
+        assert!(
+            bad.findings
+                .iter()
+                .any(|f| f.code == "lm-per-w" && f.severity == Severity::Warning),
+            "{:?}",
+            bad.findings
+        );
+    }
+
+    /// Two channels (narrow blue, broad yellow) mix into one file whose
+    /// flux and spectrum follow the weights, in both modes, through the
+    /// writer and the strict parser; the fit recovers known weights.
+    #[test]
+    fn mix_channels_shared_and_indexed() {
+        let blue_t = SpectralTable {
+            wavelengths_nm: (0..21).map(|i| 430.0 + 2.0 * i as f32).collect(),
+            values: (0..21)
+                .map(|i| {
+                    let d = (i as f32 - 10.0) / 4.0;
+                    100.0 * (-d * d).exp()
+                })
+                .collect(),
+        };
+        let yellow_t = SpectralTable {
+            wavelengths_nm: (0..31).map(|i| 500.0 + 10.0 * i as f32).collect(),
+            values: (0..31)
+                .map(|i| {
+                    let d = (i as f32 - 12.0) / 7.0;
+                    100.0 * (-d * d).exp()
+                })
+                .collect(),
+        };
+        // Photometric channel files with radiant totals, as ams OSRAM ships them.
+        let channel = |t: &SpectralTable, lm: f32, w: f32, seed: u64| {
+            let mut h = Header::new(KnownDataFlags::photometric());
+            h.spectral_id = SpectralId::SharedTable;
+            h.luminous_flux_lm = lm;
+            h.radiant_flux_w = w;
+            h.min_wavelength_nm = Some(t.wavelengths_nm[0]);
+            h.max_wavelength_nm = Some(*t.wavelengths_nm.last().unwrap());
+            h.spectra = vec![t.clone()];
+            h.text.raw[0] = "GW TEST".into();
+            let n = 4_000;
+            let rays: Vec<Ray> = lambertian_rays(n, 1.0, seed)
+                .into_iter()
+                .map(|r| Ray::new(r.position(), r.direction()).with_luminous_flux(lm / n as f32))
+                .collect();
+            (h, rays)
+        };
+        let (hb, rb) = channel(&blue_t, 12.0, 0.1, 1);
+        let (hy, ry) = channel(&yellow_t, 226.0, 0.725, 2);
+        let channels = [
+            Channel {
+                header: &hb,
+                rays: &rb,
+                weight: 1.0,
+                label: "blue".into(),
+                spectrum: None,
+            },
+            Channel {
+                header: &hy,
+                rays: &ry,
+                weight: 0.5,
+                label: "yellow".into(),
+                spectrum: None,
+            },
+        ];
+        // Shared: lumens and watts both present, scaled by the weights.
+        let (h, rays) = mix(&channels, MixMode::Shared).unwrap();
+        assert_eq!(h.flux_kind(), FluxKind::Both);
+        assert_eq!(rays.len(), 8_000);
+        let lm: f64 = rays
+            .iter()
+            .map(|r| r.luminous_flux_lm.unwrap() as f64)
+            .sum();
+        let w: f64 = rays.iter().map(|r| r.radiant_flux_w.unwrap() as f64).sum();
+        assert!((lm - (12.0 + 113.0)).abs() < 1e-2, "{lm}");
+        assert!((w - (0.1 + 0.3625)).abs() < 1e-3, "{w}");
+        assert!((h.luminous_flux_lm - 125.0).abs() < 1e-3);
+        assert_eq!(h.spectral_id, SpectralId::SharedTable);
+        let t = h.shared_spectrum().unwrap();
+        assert_eq!(
+            (t.wavelengths_nm[0], *t.wavelengths_nm.last().unwrap()),
+            (430.0, 800.0)
+        );
+        // Blue carries 0.1 of 0.4625 W = 21.6 % of the radiant power: the
+        // energy below 500 nm must be that fraction (the narrow blue line
+        // still has the higher spectral peak, as in a real white LED).
+        let below: f64 = (1..t.len())
+            .filter(|i| t.wavelengths_nm[*i] <= 500.0)
+            .map(|i| (t.values[i - 1] + t.values[i]) as f64 * 0.5)
+            .sum();
+        let frac = below / table_integral(t);
+        assert!((frac - 0.216).abs() < 0.02, "blue fraction {frac}");
+        assert_eq!(t.peak().map(|p| p.0), Some(450.0));
+        let bytes = to_bytes(&h, &rays).unwrap();
+        let f = Tm25File::parse(&bytes).unwrap();
+        assert_eq!(f.header.spectra[0].len(), t.len());
+        // Indexed: radiometric only, two tables, index per ray, strict parse.
+        let (hi, ri) = mix(&channels, MixMode::Indexed).unwrap();
+        assert_eq!(hi.flux_kind(), FluxKind::Radiometric);
+        assert_eq!(hi.spectral_id, SpectralId::PerRayTableIndex);
+        assert_eq!(hi.spectra.len(), 2);
+        assert!(hi.flags.spectrum_index && !hi.flags.luminous_flux);
+        assert_eq!(ri[0].spectrum_index, Some(1));
+        assert_eq!(ri[7_999].spectrum_index, Some(2));
+        let bytes = to_bytes(&hi, &ri).unwrap();
+        let f = Tm25File::parse(&bytes).unwrap();
+        assert_eq!(f.header.record_size(), 32);
+        assert_eq!(f.rays.get(7_999).unwrap().spectrum_index, Some(2));
+        let wi: f64 = f
+            .rays
+            .iter()
+            .map(|r| r.radiant_flux_w.unwrap() as f64)
+            .sum();
+        assert!((wi - 0.4625).abs() < 1e-3, "{wi}");
+        // Fit: a target made of 0.3 blue + 0.7 yellow (by radiant power) is recovered.
+        let target = combine_spectra(&[(&blue_t, 0.3), (&yellow_t, 0.7)]).unwrap();
+        let w = fit_weights(&target, &[&blue_t, &yellow_t]);
+        let sum: f64 = w.iter().sum();
+        assert!(
+            (w[0] / sum - 0.3).abs() < 0.01 && (w[1] / sum - 0.7).abs() < 0.01,
+            "{w:?}"
+        );
+        // A channel without radiometric information cannot be mixed spectrally.
+        let mut hb2 = hb.clone();
+        hb2.radiant_flux_w = 0.0;
+        let bad = [
+            Channel {
+                header: &hb2,
+                rays: &rb,
+                weight: 1.0,
+                label: "b".into(),
+                spectrum: None,
+            },
+            channels[1].clone(),
+        ];
+        assert!(mix(&bad, MixMode::Indexed).is_err());
+        let (hs, _) = mix(&bad, MixMode::Shared).unwrap();
+        assert_eq!(hs.flux_kind(), FluxKind::Photometric);
+        assert_eq!(hs.spectral_id, SpectralId::None);
     }
 
     /// A clean synthetic file passes; every injected defect is reported

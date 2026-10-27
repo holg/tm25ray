@@ -71,6 +71,13 @@ build also runs inside the eulumdat-rs editor at iesna.eu/?wasm=tm25.
   any view direction, cd/m² or W/(sr·m²) per pixel, with the cone and
   pixel size as controls and the noise per pixel reported. Verified against
   the Lambertian ground truth from three directions ([`docs/luminance.md`](docs/luminance.md)).
+- **Channel mixer** — `mix(...)` combines the blue and yellow ray files a
+  vendor ships per white LED into one TM-25 set, with the flux split a
+  colour bin calls for (`weights_for_flux_fractions`) or fitted to a target
+  spectrum (`fit_weights`), one combined spectral table or all tables with
+  an index per ray. Watts follow the bin spectrum's luminous efficacy
+  (`photometry::v_lambda`). Checked on an ams OSRAM package: the 2700 to
+  4000 K bins come out at 2743 to 3958 K.
 - **Far field** — `FarField::from_rays(...)` bins directions into a C/γ grid
   with solid-angle normalisation (W/sr or cd), gives the azimuthal profile,
   half-intensity angle, forward fraction, bilinear sampling and a
@@ -150,6 +157,7 @@ cargo run --release --example tm25_lambertian -- out.TM25RAY # Lambertian ground
 cargo run --release --example tm25_to_lighttools -- in.TM25RAY out.ray [n_rays] # LightTools .ray, optionally subsampled; .ray in → TM-25 out
 cargo run --release --example tm25_quality -- file.TM25RAY                       # quality report, exit 1 on errors
 cargo run --release --example tm25_luminance -- file.TM25RAY 0 45 5 0.05         # luminance map from C = 0°, γ = 45°, ±5° cone, 0.05 mm pixels
+cargo run --release --example tm25_mix -- white.TM25RAY blue.TM25RAY yellow.TM25RAY --fractions 0.055,0.945 --spectra b.txt,y.txt  # mix a colour bin
 cargo run --release --example tm25_roundtrip -- file.TM25RAY # header parses and re-writes byte for byte
 ```
 

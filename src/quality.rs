@@ -404,6 +404,27 @@ impl QualityAccumulator {
                 });
             }
         }
+        // A header with both totals and a spectrum: the lm/W it implies
+        // must match the spectrum's luminous efficacy.
+        if h.luminous_flux_lm > 0.0 && h.radiant_flux_w > 0.0 {
+            if let Some(ler) = h
+                .shared_spectrum()
+                .and_then(crate::photometry::luminous_efficacy_lm_per_w)
+            {
+                let claimed = h.luminous_flux_lm as f64 / h.radiant_flux_w as f64;
+                let dev = claimed / ler - 1.0;
+                if ler > 1.0 && dev.abs() > 0.05 {
+                    f.push(Finding {
+                        severity: Severity::Warning,
+                        code: "lm-per-w",
+                        message: format!(
+                            "header totals give {claimed:.1} lm/W but the spectral table's luminous efficacy is {ler:.1} lm/W ({:+.1} %)",
+                            dev * 100.0
+                        ),
+                    });
+                }
+            }
+        }
         if h.creation_method != 0 && h.creation_method != 1 {
             f.push(Finding {
                 severity: Severity::Info,
