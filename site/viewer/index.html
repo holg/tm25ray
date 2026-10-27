@@ -304,6 +304,10 @@ function renderStatus(st) {
     <div class="dim">${t(1)} · ${t(6)}</div>
     <div style="margin-top:8px;">${esc(st.rays)} rays · ${fluxLine} · ${esc(st.date || "")}</div>
     <div class="dim small">kept ${esc(st.kept)} for display · columns ${cols}</div>
+    ${st.quality ? (() => { const q = st.quality; const color = q.errors > 0 ? "#ff6b6b" : q.warnings > 0 ? "#ffd166" : "#8ee07a";
+      return `<div class="eyebrow sub">Quality</div>
+      <div><span style="color:${color}; font-weight:600;">${esc(q.verdict)}</span><span class="dim small"> · far-field noise ${(Number(q.noise || 0) * 100).toFixed(0)} % per 10°×5° bin at γ = 30°</span></div>
+      ${(q.findings || []).map((f) => `<div class="small" style="margin-top:3px;"><span style="color:${f.severity === "error" ? "#ff6b6b" : f.severity === "warning" ? "#ffd166" : "#9aa4b2"}; font-family: ui-monospace, monospace;">${esc(f.code)}</span>: ${esc(f.message)}</div>`).join("")}`; })() : ""}
     <div class="eyebrow sub">Far field</div>
     ${chart(`<polyline points="${ffPoly}" fill="none" stroke="#8fb4ff" stroke-width="1.5"/><line x1="0" y1="70" x2="260" y2="70" stroke="#2a2f3a"/>${tick(2, 78, "0°")}${tick(125, 78, "90°")}${tick(246, 78, "180°")}`)}
     <div class="dim small">peak ${fmt4(ff.peak)} ${unit} · half intensity at ${ff.half_intensity_deg != null ? Number(ff.half_intensity_deg).toFixed(0) : "–"}°</div>`;
@@ -385,6 +389,7 @@ function renderExports(e) {
       ${e.spd ? `<button data-k="spd" data-ext="spd">Spectrum .spd</button>` : ""}
       ${e.lighttools ? `<button id="dl_lighttools" title="LightTools binary ray file of the kept rays, flux rescaled to the file total; no colour information, assign the spectrum in LightTools">LightTools .ray</button>` : ""}
       ${e.sre ? `<button data-k="sre" data-ext="sre" title="The spectrum as a LightTools .sre spectral distribution file, to assign to the ray data source">LightTools .sre</button>` : ""}
+      ${e.quality_txt ? `<button data-k="quality_txt" data-ext="quality.txt" title="The quality report as text">Quality report .txt</button>` : ""}
       ${e.lighttools_sampled ? `<button id="dl_lighttools_sampled" title="Second option: a wavelength per ray drawn from the spectral table. The spectrum is then hard-wired into the rays in LightTools and cannot be reassigned; for sources whose spectrum varies over position and angle">LightTools .ray + λ</button>` : ""}
     </div>
     <div class="dim tiny" style="margin-top:6px;">${lumens > 0 ? `lamp flux ${lumens.toFixed(2)} lm · ATLA carries the spectrum` : "radiometric file without lumens: intensities per kW, see report field"}</div>
