@@ -409,9 +409,9 @@ function renderStatus(st) {
   if (ex) ex.addEventListener("input", (e) => { exposureS = Math.pow(10, parseFloat(e.target.value)); lastStatus = ""; });
 }
 
-function download(text, name) {
+function download(content, name, mime = "text/plain") {
   const a = document.createElement("a");
-  a.href = URL.createObjectURL(new Blob([text], { type: "text/plain" })); a.download = name;
+  a.href = URL.createObjectURL(new Blob([content], { type: mime })); a.download = name;
   document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
 }
 function renderExports(e) {
@@ -427,7 +427,7 @@ function renderExports(e) {
       ${e.lighttools ? `<button id="dl_lighttools" title="LightTools binary ray file of the kept rays, flux rescaled to the file total; no colour information, assign the spectrum in LightTools">LightTools .ray</button>` : ""}
       ${e.sre ? `<button data-k="sre" data-ext="sre" title="The spectrum as a LightTools .sre spectral distribution file, to assign to the ray data source">LightTools .sre</button>` : ""}
       ${e.quality_txt ? `<button data-k="quality_txt" data-ext="quality.txt" title="The quality report as text">Quality report .txt</button>` : ""}
-      ${e.ldt ? `<button id="open_report" title="A PDF report with diagrams, rendered in the editor: takes this file along">PDF report in the editor</button>` : ""}
+      ${e.ldt ? `<button id="pdf_report" class="primary" title="A PDF with the header, quality findings, far-field diagrams, spectrum with CCT, irradiance plane and the luminance map (switch on the camera view to include it). Rendered here in the browser.">PDF report</button>` : ""}
       ${e.lighttools_sampled ? `<button id="dl_lighttools_sampled" title="Second option: a wavelength per ray drawn from the spectral table. The spectrum is then hard-wired into the rays in LightTools and cannot be reassigned; for sources whose spectrum varies over position and angle">LightTools .ray + λ</button>` : ""}
     </div>
     <div class="dim tiny" style="margin-top:6px;">${lumens > 0 ? `lamp flux ${lumens.toFixed(2)} lm · ATLA carries the spectrum` : "radiometric file without lumens: intensities per kW, see report field"}</div>
@@ -437,12 +437,33 @@ function renderExports(e) {
     </div>
     <div class="dim tiny" style="margin-top:6px;">The goniometer replays ${esc(kept)} flux-weighted rays as the near-field source, so covers and reflectors see the real emitting area.</div>`;
   for (const b of box.querySelectorAll("button[data-k]")) b.addEventListener("click", () => { const c = e[b.dataset.k]; if (c) download(c, `${name}.${b.dataset.ext}`); });
-  // Hand the current file to the editor's viewer (same origin, same
-  // IndexedDB stash) and let it start by itself there.
-  const rep = $("open_report");
-  if (rep) rep.addEventListener("click", async () => {
-    if (currentFile) await window.tm25StashFile(currentFile, "file");
-    location.href = "/app/?wasm=tm25&autoload=1&name=" + encodeURIComponent(currentFile ? currentFile.name : "");
+  // PDF report, rendered on this page: the report generator is a small
+  // wasm module (/report/, from eulumdat-typst), the Typst compiler is the
+  // editor's lazy bundle reached through /app/ on this origin.
+  const pdf = $("pdf_report");
+  if (pdf) pdf.addEventListener("click", async () => {
+    const label = pdf.textContent; pdf.disabled = true; pdf.textContent = "Rendering PDF…";
+    try {
+      const st = localStorage.getItem("tm25_status") || "";
+      const ex = localStorage.getItem("tm25_exports") || "";
+      const lum = settings.show_camera_view ? (localStorage.getItem("tm25_luminance") || "") : "";
+      const fname = currentFile ? currentFile.name : (st ? (JSON.parse(st).name || "rayfile") : "rayfile");
+      const stem = fname.replace(/\.[^.]*$/, "");
+      const gen = await import("/report/report.js"); await gen.default();
+      const source = gen.tm25_report_typst(st, ex, lum, fname);
+      if (!window.compileTypstToPdf) {
+        await new Promise((resolve, reject) => { const sc = document.createElement("script"); sc.src = "/app/typst-loader.js"; sc.onload = resolve; sc.onerror = () => reject(new Error("typst loader")); document.head.appendChild(sc); });
+      }
+      try {
+        const bytes = await window.compileTypstToPdf(source);
+        download(bytes, `${stem}_report.pdf`, "application/pdf");
+      } catch (err) {
+        console.error("[TM25] PDF compile failed, downloading the Typst source", err);
+        download(source, `${stem}_report.typ`);
+      }
+    } catch (err) {
+      console.error("[TM25] report failed", err); alert("Report failed: " + (err.message || err));
+    } finally { pdf.disabled = false; pdf.textContent = label; }
   });
   // The LightTools file is binary, so the viewer stashes it in IndexedDB
   // under "lighttools" (next to the goniometer's "gonio"); take it, save it,
